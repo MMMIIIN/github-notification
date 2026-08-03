@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+# oh-my-claudecode tooling state (not part of the app)
+.omc/
+*.xcodeproj
+DerivedData/
+.DS_Store
+# Local OAuth app credentials live in ~/Library/Application Support/GitHubNotifier/config.json
+# (outside the repo), so nothing secret is tracked here.
