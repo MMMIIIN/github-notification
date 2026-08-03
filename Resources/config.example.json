@@ -1,5 +1,3 @@
 {
-  "clientID": "YOUR_GITHUB_OAUTH_APP_CLIENT_ID",
-  "clientSecret": "YOUR_GITHUB_OAUTH_APP_CLIENT_SECRET",
-  "callbackScheme": "ghnotifier"
+  "clientID": "YOUR_GITHUB_OAUTH_APP_CLIENT_ID"
 }

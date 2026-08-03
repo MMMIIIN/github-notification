@@ -22,16 +22,5 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>GitHub Notifier — menu bar notifications for GitHub.</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>com.ghnotifier.oauth</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>ghnotifier</string>
-            </array>
-        </dict>
-    </array>
 </dict>
 </plist>

@@ -1,156 +1,189 @@
 import Foundation
-import AuthenticationServices
 import AppKit
 
 enum OAuthError: Error, LocalizedError {
     case notConfigured
-    case cancelled
-    case stateMismatch
-    case noCode
-    case tokenExchangeFailed(String)
+    case denied
+    case expired
+    case network(String)
+    case deviceFlowDisabled
 
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "OAuth is not configured. Add config.json or sign in with a token."
-        case .cancelled:
-            return "Sign-in was cancelled."
-        case .stateMismatch:
-            return "Security check failed (state mismatch). Please try again."
-        case .noCode:
-            return "GitHub did not return an authorization code."
-        case .tokenExchangeFailed(let detail):
-            return "Could not complete sign-in: \(detail)"
+            return "OAuth isn't configured. Sign in with a token instead."
+        case .denied:
+            return "Authorization was denied on GitHub."
+        case .expired:
+            return "The code expired before you authorized. Please try again."
+        case .deviceFlowDisabled:
+            return "This OAuth App doesn't have Device Flow enabled. Enable it in the app settings on GitHub."
+        case .network(let detail):
+            return "Sign-in failed: \(detail)"
         }
     }
 }
 
-/// Implements the GitHub OAuth web application flow using
-/// `ASWebAuthenticationSession`: the system opens GitHub in a browser sheet,
-/// the user approves, and GitHub redirects back to our custom scheme.
-final class OAuthService: NSObject {
-    private let config: AppConfig
+/// The pending device-flow challenge shown to the user while they authorize.
+struct DeviceCodePrompt: Equatable {
+    let userCode: String        // e.g. "WDJB-MJHT"
+    let verificationURI: String // https://github.com/login/device
+}
 
-    init?(config: AppConfig? = AppConfig.load()) {
-        guard let config else { return nil }
-        self.config = config
+/// Implements the GitHub **OAuth Device Flow**. This needs only the (public)
+/// client id — no client secret, so there's no backend and nothing secret to
+/// distribute to teammates.
+///
+/// Flow:
+///  1. POST /login/device/code  → device_code + user_code + verification_uri
+///  2. Copy the user_code, open the verification page in the browser.
+///  3. Poll /login/oauth/access_token until the user authorizes.
+final class OAuthService {
+    private let clientID: String
+
+    init?(clientID: String? = AppConfig.clientID) {
+        guard let clientID, !clientID.isEmpty else { return nil }
+        self.clientID = clientID
     }
 
-    /// Runs the full browser flow and returns an access token.
-    @MainActor
-    func signIn() async throws -> String {
-        let state = UUID().uuidString
-        let authURL = buildAuthorizeURL(state: state)
+    /// Runs the device flow. `onCodeReady` fires once the user code is available
+    /// (so the UI can display it); this service also copies it to the clipboard
+    /// and opens the verification page automatically.
+    func signIn(onCodeReady: @escaping @MainActor (DeviceCodePrompt) -> Void) async throws -> String {
+        let device = try await requestDeviceCode()
 
-        let callbackURL = try await presentAuthSession(url: authURL)
-
-        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-              let items = components.queryItems else {
-            throw OAuthError.noCode
-        }
-        guard items.first(where: { $0.name == "state" })?.value == state else {
-            throw OAuthError.stateMismatch
-        }
-        guard let code = items.first(where: { $0.name == "code" })?.value else {
-            throw OAuthError.noCode
-        }
-        return try await exchangeCodeForToken(code)
-    }
-
-    // MARK: - Steps
-
-    private func buildAuthorizeURL(state: String) -> URL {
-        var components = URLComponents(string: "https://github.com/login/oauth/authorize")!
-        components.queryItems = [
-            URLQueryItem(name: "client_id", value: config.clientID),
-            URLQueryItem(name: "redirect_uri", value: config.callbackURL),
-            URLQueryItem(name: "scope", value: AppConfig.scopes),
-            URLQueryItem(name: "state", value: state)
-        ]
-        return components.url!
-    }
-
-    @MainActor
-    private func presentAuthSession(url: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: config.callbackScheme
-            ) { callbackURL, error in
-                if let error {
-                    let nsError = error as NSError
-                    if nsError.domain == ASWebAuthenticationSessionError.errorDomain,
-                       nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                        continuation.resume(throwing: OAuthError.cancelled)
-                    } else {
-                        continuation.resume(throwing: OAuthError.tokenExchangeFailed(error.localizedDescription))
-                    }
-                    return
-                }
-                guard let callbackURL else {
-                    continuation.resume(throwing: OAuthError.noCode)
-                    return
-                }
-                continuation.resume(returning: callbackURL)
+        let prompt = DeviceCodePrompt(userCode: device.userCode, verificationURI: device.verificationURI)
+        await MainActor.run {
+            // Make authorizing as low-friction as possible: code on the clipboard,
+            // verification page already open.
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(device.userCode, forType: .string)
+            if let url = URL(string: device.verificationURI) {
+                NSWorkspace.shared.open(url)
             }
-            session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
-            if !session.start() {
-                continuation.resume(throwing: OAuthError.tokenExchangeFailed("Could not start authentication session"))
-            }
+            onCodeReady(prompt)
         }
+
+        return try await pollForToken(deviceCode: device.deviceCode, interval: device.interval, expiresIn: device.expiresIn)
     }
 
-    private func exchangeCodeForToken(_ code: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://github.com/login/oauth/access_token")!)
+    // MARK: - Step 1: device code
+
+    private struct DeviceCodeResponse {
+        let deviceCode: String
+        let userCode: String
+        let verificationURI: String
+        let interval: Int
+        let expiresIn: Int
+    }
+
+    private func requestDeviceCode() async throws -> DeviceCodeResponse {
+        var request = URLRequest(url: URL(string: "https://github.com/login/device/code")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: String] = [
-            "client_id": config.clientID,
-            "client_secret": config.clientSecret,
-            "code": code,
-            "redirect_uri": config.callbackURL
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formBody([
+            "client_id": clientID,
+            "scope": AppConfig.scopes
+        ])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await dataTask(request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw OAuthError.tokenExchangeFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+            throw OAuthError.network("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
         }
 
-        struct TokenResponse: Decodable {
-            let access_token: String?
+        struct Raw: Decodable {
+            let device_code: String?
+            let user_code: String?
+            let verification_uri: String?
+            let interval: Int?
+            let expires_in: Int?
             let error: String?
-            let error_description: String?
         }
-        let decoded = try JSONDecoder().decode(TokenResponse.self, from: data)
-        if let token = decoded.access_token { return token }
-        throw OAuthError.tokenExchangeFailed(decoded.error_description ?? decoded.error ?? "Unknown error")
+        let raw = try JSONDecoder().decode(Raw.self, from: data)
+        if raw.error == "device_flow_disabled" { throw OAuthError.deviceFlowDisabled }
+        guard let deviceCode = raw.device_code,
+              let userCode = raw.user_code,
+              let uri = raw.verification_uri else {
+            throw OAuthError.network(raw.error ?? "Malformed device code response")
+        }
+        return DeviceCodeResponse(
+            deviceCode: deviceCode,
+            userCode: userCode,
+            verificationURI: uri,
+            interval: raw.interval ?? 5,
+            expiresIn: raw.expires_in ?? 900
+        )
+    }
+
+    // MARK: - Step 3: poll for the token
+
+    private func pollForToken(deviceCode: String, interval: Int, expiresIn: Int) async throws -> String {
+        var pollInterval = max(interval, 5)
+        let deadline = Date().addingTimeInterval(TimeInterval(expiresIn))
+
+        while Date() < deadline {
+            try await Task.sleep(nanoseconds: UInt64(pollInterval) * 1_000_000_000)
+
+            var request = URLRequest(url: URL(string: "https://github.com/login/oauth/access_token")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = formBody([
+                "client_id": clientID,
+                "device_code": deviceCode,
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+            ])
+
+            let (data, _) = try await dataTask(request)
+            struct Raw: Decodable {
+                let access_token: String?
+                let error: String?
+            }
+            let raw = try JSONDecoder().decode(Raw.self, from: data)
+
+            if let token = raw.access_token { return token }
+
+            switch raw.error {
+            case "authorization_pending":
+                continue                          // user hasn't finished yet
+            case "slow_down":
+                pollInterval += 5                 // back off as instructed
+            case "expired_token":
+                throw OAuthError.expired
+            case "access_denied":
+                throw OAuthError.denied
+            default:
+                throw OAuthError.network(raw.error ?? "Unknown polling error")
+            }
+        }
+        throw OAuthError.expired
+    }
+
+    // MARK: - Helpers
+
+    private func formBody(_ params: [String: String]) -> Data {
+        params
+            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? $0.value)" }
+            .joined(separator: "&")
+            .data(using: .utf8) ?? Data()
+    }
+
+    private func dataTask(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await URLSession.shared.data(for: request)
+        } catch {
+            throw OAuthError.network(error.localizedDescription)
+        }
     }
 }
 
-// MARK: - Presentation anchor
-
-extension OAuthService: ASWebAuthenticationPresentationContextProviding {
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        // Menu bar agents have no main window; use the key window if present,
-        // otherwise a transient anchor window keeps AppKit happy.
-        if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
-            return window
-        }
-        return OAuthService.anchorWindow
-    }
-
-    private static let anchorWindow: NSWindow = {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.level = .floating
-        window.alphaValue = 0
-        return window
+private extension CharacterSet {
+    /// Query-value-safe set (excludes `&`, `=`, `+`, etc.).
+    static let urlQueryValueAllowed: CharacterSet = {
+        var set = CharacterSet.alphanumerics
+        set.insert(charactersIn: "-._~")
+        return set
     }()
 }

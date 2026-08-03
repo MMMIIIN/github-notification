@@ -15,6 +15,8 @@ final class AuthManager: ObservableObject {
     @Published private(set) var state: State = .signedOut
     /// The active token, or nil when signed out. Read by the poller.
     @Published private(set) var token: String?
+    /// While an OAuth Device Flow is in progress, the code the user must confirm.
+    @Published var deviceCodePrompt: DeviceCodePrompt?
 
     var isOAuthAvailable: Bool { AppConfig.isOAuthAvailable }
 
@@ -31,14 +33,19 @@ final class AuthManager: ObservableObject {
 
     func signInWithOAuth() async {
         guard let service = OAuthService() else {
-            state = .error(OAuthError.notConfigured.localizedDescription)
+            state = .error(OAuthError.notConfigured.errorDescription ?? "OAuth not configured")
             return
         }
         state = .signingIn
+        deviceCodePrompt = nil
         do {
-            let token = try await service.signIn()
+            let token = try await service.signIn { [weak self] prompt in
+                self?.deviceCodePrompt = prompt
+            }
+            deviceCodePrompt = nil
             try await finishSignIn(token: token, method: .oauth)
         } catch {
+            deviceCodePrompt = nil
             state = .error((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
     }

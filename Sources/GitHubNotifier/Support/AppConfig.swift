@@ -1,30 +1,24 @@
 import Foundation
 
-/// OAuth application configuration.
+/// OAuth configuration for the **Device Flow**.
 ///
-/// For this MVP there is **no backend**: the GitHub OAuth App's client id and
-/// secret are read from a local JSON file that lives outside the repo:
+/// Device Flow needs only the OAuth App's **client id**, which is *not* secret —
+/// so there's no client secret, no backend, and nothing sensitive to distribute.
+/// Teammates just install the app and sign in.
 ///
-///   ~/Library/Application Support/GitHubNotifier/config.json
+/// The client id is resolved in this order:
+///   1. `~/Library/Application Support/GitHubNotifier/config.json`  → `{ "clientID": "Iv1.xxxx" }`
+///   2. The compiled-in `bundledClientID` below (fill this once to distribute to a team).
 ///
-///   {
-///     "clientID": "Iv1.xxxxxxxx",
-///     "clientSecret": "xxxxxxxxxxxxxxxxxxxx",
-///     "callbackScheme": "ghnotifier"
-///   }
-///
-/// If the file is absent or incomplete, OAuth is unavailable and the UI falls
-/// back to Personal Access Token sign-in (which needs no client secret).
-struct AppConfig: Codable {
-    let clientID: String
-    let clientSecret: String
-    let callbackScheme: String
-
-    /// OAuth callback URL registered in the GitHub OAuth App settings.
-    var callbackURL: String { "\(callbackScheme)://oauth-callback" }
+/// If neither is set, OAuth is unavailable and the UI falls back to a Personal
+/// Access Token.
+enum AppConfig {
+    /// Fill this in to bake the (public) client id into team builds. Leave empty
+    /// to require a local config.json instead.
+    static let bundledClientID = ""
 
     /// Scopes required for reading notifications on private repositories.
-    static let scopes = "notifications,repo,read:org"
+    static let scopes = "notifications repo read:org"
 
     static var configDirectory: URL {
         FileManager.default
@@ -36,14 +30,19 @@ struct AppConfig: Codable {
         configDirectory.appendingPathComponent("config.json")
     }
 
-    /// Loads OAuth config from disk, or nil if unavailable/invalid.
-    static func load() -> AppConfig? {
-        guard let data = try? Data(contentsOf: configFileURL) else { return nil }
-        guard let config = try? JSONDecoder().decode(AppConfig.self, from: data) else { return nil }
-        guard !config.clientID.isEmpty, !config.clientSecret.isEmpty else { return nil }
-        return config
+    /// The effective client id, or nil if OAuth isn't configured.
+    static var clientID: String? {
+        if let fromFile = clientIDFromFile(), !fromFile.isEmpty { return fromFile }
+        if !bundledClientID.isEmpty { return bundledClientID }
+        return nil
     }
 
-    /// Whether OAuth sign-in can be offered.
-    static var isOAuthAvailable: Bool { load() != nil }
+    /// Whether OAuth (Device Flow) sign-in can be offered.
+    static var isOAuthAvailable: Bool { clientID != nil }
+
+    private static func clientIDFromFile() -> String? {
+        guard let data = try? Data(contentsOf: configFileURL) else { return nil }
+        struct File: Decodable { let clientID: String? }
+        return (try? JSONDecoder().decode(File.self, from: data))?.clientID
+    }
 }

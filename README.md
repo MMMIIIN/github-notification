@@ -11,8 +11,8 @@ email.
   unread emphasis. Click an item to open it in your browser.
 - **System notification banners** for new items; click a banner to jump straight
   to the PR/issue/comment.
-- **GitHub sign-in** via OAuth (browser flow) with a **Personal Access Token**
-  fallback.
+- **GitHub sign-in** via OAuth **Device Flow** (no client secret, no backend)
+  with a **Personal Access Token** fallback.
 - **Read-only**: it never changes anything on GitHub. Mark things read on
   github.com and it reflects on the next poll.
 - Polls the GitHub Notifications API roughly every **60 seconds**, respecting the
@@ -57,27 +57,24 @@ app locally so Keychain, notifications, and the OAuth browser flow work.
 Create a token at: GitHub → Settings → Developer settings → Personal access
 tokens.
 
-### Option B — OAuth (browser sign-in)
-OAuth needs a GitHub OAuth App because the token exchange requires a client
-secret. For this MVP there's no backend, so the secret lives in a local config
-file on your machine.
+### Option B — OAuth (GitHub Device Flow)
+OAuth uses GitHub's **Device Flow**, which needs only the OAuth App's *client id*
+(not secret). That means **no backend and nothing secret to distribute** — great
+for teams.
 
+**One-time setup (by whoever distributes the app):**
 1. Create an OAuth App: GitHub → Settings → Developer settings → **OAuth Apps** →
-   *New OAuth App*.
-   - **Authorization callback URL**: `ghnotifier://oauth-callback`
-2. Copy `Resources/config.example.json` to:
-   ```
-   ~/Library/Application Support/GitHubNotifier/config.json
-   ```
-3. Fill in your `clientID` and `clientSecret` (keep `callbackScheme` as
-   `ghnotifier`).
-4. Relaunch. The **"Sign in with GitHub"** button now opens the browser flow and
-   redirects back to the app automatically.
+   *New OAuth App*. Any name/homepage URL is fine; the callback URL is unused by
+   Device Flow.
+2. On the app's page, **check "Enable Device Flow"**.
+3. Copy the **Client ID** and bake it into the build so teammates need nothing:
+   set `bundledClientID` in `Sources/GitHubNotifier/Support/AppConfig.swift`.
+   *(Alternatively, each person can drop a `~/Library/Application
+   Support/GitHubNotifier/config.json` = `{ "clientID": "Iv1.xxxx" }`.)*
 
-> Team distribution note: because each person builds locally, everyone can keep
-> their own `config.json` (or just use a token). If you later want a signed,
-> distributable build with shared OAuth, add a tiny token-exchange backend so the
-> client secret never ships inside the app.
+**Signing in:** click **"Sign in with GitHub"** → the app copies a short code and
+opens `github.com/login/device` → paste the code and click **Authorize**. Done —
+no client secret, no backend, no per-teammate setup.
 
 ---
 
@@ -102,7 +99,7 @@ Click the gear in the dropdown:
 
 | # | Scenario | Where |
 |---|----------|-------|
-| 1 | Install → OAuth → pick repos → first notifications | `make run`, `LoginView`, `RepoSelectionView`, `NotificationPoller` |
+| 1 | Install → OAuth (Device Flow) → pick repos → first notifications | `make run`, `LoginView`, `RepoSelectionView`, `NotificationPoller` |
 | 2 | Badge + dropdown list + type icons + unread + read-sync | `BadgeRenderer`, `DropdownView`, `NotificationRowView`, read-only poll |
 | 3 | New item → system banner → click → browser | `SystemNotificationManager` |
 | 4 | Network loss → silent retry → icon warning → auto-recover | `NotificationPoller` backoff + `ConnectionStatus` |
@@ -116,7 +113,7 @@ Click the gear in the dropdown:
 ```
 Sources/GitHubNotifier/
 ├── App/            main.swift, AppDelegate, AppState, StatusItemController, BadgeRenderer
-├── Auth/           AuthManager, OAuthService (ASWebAuthenticationSession)
+├── Auth/           AuthManager, OAuthService (GitHub Device Flow)
 ├── GitHub/         GitHubAPIClient (GET-only), NotificationPoller (~60s loop)
 ├── Models/         GitHubNotification + enums
 ├── Notifications/  SystemNotificationManager (UserNotifications)
@@ -143,5 +140,5 @@ Sources/GitHubNotifier/
 ## Out of scope (MVP)
 
 CI/merge/release notifications, marking read from the app (write/PATCH), multiple
-GitHub accounts, a token-exchange backend, App Store distribution, and OAuth
-Device Flow.
+GitHub accounts, App Store distribution, and any auth backend (Device Flow keeps
+the app fully client-side).

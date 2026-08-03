@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Sign-in screen. OAuth is primary; a Personal Access Token is the secondary
 /// "sign in another way" path.
@@ -24,7 +25,9 @@ struct LoginView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if case .signingIn = app.auth.state {
+            if let prompt = app.auth.deviceCodePrompt {
+                deviceCodeCard(prompt)
+            } else if case .signingIn = app.auth.state {
                 ProgressView().padding(.top, 4)
             }
 
@@ -73,6 +76,44 @@ struct LoginView: View {
     private var isBusy: Bool {
         if case .signingIn = app.auth.state { return true }
         return false
+    }
+
+    private func deviceCodeCard(_ prompt: DeviceCodePrompt) -> some View {
+        VStack(spacing: 10) {
+            Text("Enter this code on GitHub")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(prompt.userCode)
+                .font(.system(.title, design: .monospaced))
+                .bold()
+                .textSelection(.enabled)
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
+
+            Text("We copied the code and opened GitHub in your browser.\nPaste it there and click Authorize.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 8) {
+                Button("Copy code") { copyToClipboard(prompt.userCode) }
+                    .buttonStyle(.bordered)
+                Button("Open GitHub") {
+                    if let url = URL(string: prompt.verificationURI) { app.openInBrowser(url.absoluteString) }
+                }
+                .buttonStyle(.bordered)
+            }
+            ProgressView().controlSize(.small)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.06)))
+        .padding(.horizontal, 16)
+    }
+
+    private func copyToClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var patEntry: some View {
