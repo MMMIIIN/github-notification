@@ -18,6 +18,12 @@ struct NotificationsPollResult {
     let notModified: Bool
 }
 
+/// Browser destination and optional plain-text content fetched while resolving it.
+struct NotificationTarget {
+    let url: String
+    let preview: String?
+}
+
 /// A repository the user can subscribe to during onboarding.
 struct RepositorySummary: Identifiable, Hashable {
     var id: String { fullName }
@@ -129,7 +135,7 @@ struct GitHubAPIClient {
     /// to its browser `html_url`, which carries the exact `#discussion_r…` /
     /// `#issuecomment-…` anchor so the browser scrolls straight to the comment.
     /// Returns nil on any failure so the caller can fall back to the thread URL.
-    func resolveCommentHTMLURL(commentAPIURL: String) async -> String? {
+    func resolveCommentTarget(commentAPIURL: String) async -> NotificationTarget? {
         guard let url = URL(string: commentAPIURL) else { return nil }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -138,8 +144,13 @@ struct GitHubAPIClient {
         request.setValue("GitHubNotifier/1.0", forHTTPHeaderField: "User-Agent")
 
         guard let (data, http) = try? await send(request), http.statusCode == 200 else { return nil }
-        struct CommentRef: Decodable { let html_url: String? }
-        return (try? JSONDecoder().decode(CommentRef.self, from: data))?.html_url
+        struct CommentRef: Decodable {
+            let html_url: String?
+            let body: String?
+        }
+        guard let comment = try? JSONDecoder().decode(CommentRef.self, from: data),
+              let htmlURL = comment.html_url else { return nil }
+        return NotificationTarget(url: htmlURL, preview: Self.previewText(comment.body))
     }
 
     /// Builds the exact browser anchor without a network round-trip for issue
@@ -177,7 +188,7 @@ struct GitHubAPIClient {
     /// the most recent one that @mentions `login` — or the most recent overall.
     /// Returns nil if nothing usable is found.
     func findScrollTarget(repoFullName: String, number: Int?, isPR: Bool,
-                          login: String?, preferMention: Bool) async -> String? {
+                          login: String?, preferMention: Bool) async -> NotificationTarget? {
         guard let number else { return nil }
         let parts = repoFullName.split(separator: "/")
         guard parts.count == 2 else { return nil }
@@ -206,9 +217,53 @@ struct GitHubAPIClient {
         if preferMention, let login {
             let needle = "@\(login)".lowercased()
             let mentions = candidates.filter { $0.body.lowercased().contains(needle) }
-            if let best = mentions.max(by: { $0.date < $1.date }) { return best.htmlURL }
+            if let best = mentions.max(by: { $0.date < $1.date }) {
+                return NotificationTarget(url: best.htmlURL, preview: Self.previewText(best.body))
+            }
         }
-        return candidates.max(by: { $0.date < $1.date })?.htmlURL
+        guard let best = candidates.max(by: { $0.date < $1.date }) else { return nil }
+        return NotificationTarget(url: best.htmlURL, preview: Self.previewText(best.body))
+    }
+
+    /// Fetches the PR/issue description used as the preview for review requests.
+    func fetchThreadPreview(repoFullName: String, number: Int?, isPR: Bool) async -> String? {
+        guard let number else { return nil }
+        let parts = repoFullName.split(separator: "/")
+        guard parts.count == 2 else { return nil }
+        let kind = isPR ? "pulls" : "issues"
+        let path = "repos/\(parts[0])/\(parts[1])/\(kind)/\(number)"
+        guard let (data, http) = try? await send(makeRequest(path: path)), http.statusCode == 200 else {
+            return nil
+        }
+        struct Thread: Decodable { let body: String? }
+        return (try? JSONDecoder().decode(Thread.self, from: data)).flatMap { Self.previewText($0.body) }
+    }
+
+    /// Converts a Markdown body into a compact, single-line preview.
+    static func previewText(_ body: String?, limit: Int = 180) -> String? {
+        guard var text = body?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return nil
+        }
+        let replacements = [
+            (#"(?s)```.*?```"#, " "),
+            (#"!\[[^\]]*\]\([^\)]*\)"#, " "),
+            (#"\[([^\]]+)\]\([^\)]*\)"#, "$1"),
+            (#"[`*_>#~|]"#, " "),
+            (#"\s+"#, " ")
+        ]
+        for (pattern, replacement) in replacements {
+            text = text.replacingOccurrences(
+                of: pattern,
+                with: replacement,
+                options: .regularExpression
+            )
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        if text.count > limit {
+            return String(text.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return text
     }
 
     private struct ThreadComment {

@@ -16,6 +16,8 @@ final class AppState: ObservableObject {
     @Published var repoLoadError: String?
     /// Rows currently waiting for a deep link to be resolved after a click.
     @Published private(set) var resolvingNotificationIDs: Set<String> = []
+    /// Ephemeral previews; private repository content is never persisted.
+    @Published private(set) var notificationPreviews: [String: String] = [:]
 
     /// High-level screen the popover should show.
     enum Screen: Equatable {
@@ -30,9 +32,10 @@ final class AppState: ObservableObject {
     private struct CachedDeepLink {
         let notificationDate: Date
         let url: String
+        let preview: String?
     }
     private var deepLinkCache: [String: CachedDeepLink] = [:]
-    private var resolutionTasks: [String: Task<String, Never>] = [:]
+    private var resolutionTasks: [String: Task<NotificationTarget, Never>] = [:]
     private var prefetchTask: Task<Void, Never>?
 
     init() {
@@ -77,6 +80,7 @@ final class AppState: ObservableObject {
             resolutionTasks.values.forEach { $0.cancel() }
             resolutionTasks = [:]
             deepLinkCache = [:]
+            notificationPreviews = [:]
             resolvingNotificationIDs = []
             availableRepos = []
             recomputeScreen()
@@ -151,9 +155,9 @@ final class AppState: ObservableObject {
 
         resolvingNotificationIDs.insert(notification.id)
         Task {
-            let url = await resolveDeepLink(for: notification, token: token)
+            let target = await resolveDeepLink(for: notification, token: token)
             resolvingNotificationIDs.remove(notification.id)
-            openInBrowser(url)
+            openInBrowser(target.url)
         }
     }
 
@@ -174,18 +178,35 @@ final class AppState: ObservableObject {
         return cached.url
     }
 
-    private func resolveDeepLink(for notification: GitHubNotification, token: String) async -> String {
-        if let immediate = immediateDeepLink(for: notification) { return immediate }
-        if let cached = cachedDeepLink(for: notification) { return cached }
+    private func resolveDeepLink(for notification: GitHubNotification, token: String) async -> NotificationTarget {
+        if let cached = deepLinkCache[notification.id], cached.notificationDate == notification.updatedAt {
+            return NotificationTarget(url: cached.url, preview: cached.preview)
+        }
         if let existing = resolutionTasks[notification.id] { return await existing.value }
 
         let login = auth.currentLogin
-        let task = Task<String, Never> {
+        let immediate = immediateDeepLink(for: notification)
+        let task = Task<NotificationTarget, Never> {
             let client = GitHubAPIClient(token: token)
+
+            if notification.notificationType == .reviewRequest {
+                let preview = await client.fetchThreadPreview(
+                    repoFullName: notification.repositoryName,
+                    number: notification.number,
+                    isPR: notification.isPullRequest
+                )
+                return NotificationTarget(url: immediate ?? notification.url, preview: preview)
+            }
+
             if let commentURL = notification.commentAPIURL,
-               let html = await client.resolveCommentHTMLURL(commentAPIURL: commentURL),
-               URL(string: html)?.fragment?.isEmpty == false {
-                return html
+               let resolved = await client.resolveCommentTarget(commentAPIURL: commentURL) {
+                let resolvedHasAnchor = URL(string: resolved.url)?.fragment?.isEmpty == false
+                if resolvedHasAnchor || immediate != nil {
+                    return NotificationTarget(
+                        url: immediate ?? resolved.url,
+                        preview: resolved.preview
+                    )
+                }
             }
             return await client.findScrollTarget(
                 repoFullName: notification.repositoryName,
@@ -193,16 +214,22 @@ final class AppState: ObservableObject {
                 isPR: notification.isPullRequest,
                 login: login,
                 preferMention: notification.notificationType == .issueMention
-            ) ?? notification.url
+            ) ?? NotificationTarget(url: immediate ?? notification.url, preview: nil)
         }
         resolutionTasks[notification.id] = task
-        let url = await task.value
+        let target = await task.value
         resolutionTasks[notification.id] = nil
         deepLinkCache[notification.id] = CachedDeepLink(
             notificationDate: notification.updatedAt,
-            url: url
+            url: target.url,
+            preview: target.preview
         )
-        return url
+        if let preview = target.preview {
+            notificationPreviews[notification.id] = preview
+        } else {
+            notificationPreviews[notification.id] = nil
+        }
+        return target
     }
 
     private func prefetchDeepLinks(for notifications: [GitHubNotification]) {
@@ -211,8 +238,7 @@ final class AppState: ObservableObject {
         prefetchTask = Task { [weak self] in
             guard let self else { return }
             for notification in notifications where !Task.isCancelled {
-                guard immediateDeepLink(for: notification) == nil,
-                      cachedDeepLink(for: notification) == nil else { continue }
+                guard cachedDeepLink(for: notification) == nil else { continue }
                 _ = await resolveDeepLink(for: notification, token: token)
             }
         }
@@ -235,6 +261,7 @@ final class AppState: ObservableObject {
     func dismissReadNotification(_ notification: GitHubNotification) {
         guard !notification.isUnread else { return }
         deepLinkCache[notification.id] = nil
+        notificationPreviews[notification.id] = nil
         resolutionTasks[notification.id]?.cancel()
         resolutionTasks[notification.id] = nil
         resolvingNotificationIDs.remove(notification.id)

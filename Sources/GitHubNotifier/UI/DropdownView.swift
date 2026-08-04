@@ -76,6 +76,7 @@ struct DropdownView: View {
                     ForEach(app.poller.notifications) { item in
                         NotificationRowView(
                             notification: item,
+                            preview: app.notificationPreviews[item.id],
                             isResolving: app.resolvingNotificationIDs.contains(item.id),
                             onTap: {
                                 app.openNotification(item)

@@ -4,6 +4,7 @@ import SwiftUI
 /// and a secondary line (repo · author · relative time). Highlights on hover.
 struct NotificationRowView: View {
     let notification: GitHubNotification
+    var preview: String? = nil
     var isResolving = false
     let onTap: () -> Void
     var onDelete: (() -> Void)? = nil
@@ -21,6 +22,14 @@ struct NotificationRowView: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let preview, !preview.isEmpty {
+                    Text(preview)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 HStack(spacing: 5) {
                     typeLabel

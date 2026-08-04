@@ -26,4 +26,13 @@ final class DeepLinkTests: XCTestCase {
             "https://github.com/acme/widget/pull/5/files"
         )
     }
+
+    func testPreviewStripsCommonMarkdownAndTruncates() {
+        let result = GitHubAPIClient.previewText(
+            "## Summary\nPlease review **this change** and [the docs](https://example.com).",
+            limit: 40
+        )
+
+        XCTAssertEqual(result, "Summary Please review this change and th…")
+    }
 }
