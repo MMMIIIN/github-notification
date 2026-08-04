@@ -11,8 +11,8 @@ email.
   unread emphasis. Click an item to open it in your browser.
 - **System notification banners** for new items; click a banner to jump straight
   to the PR/issue/comment.
-- **GitHub sign-in** via OAuth **Device Flow** (no client secret, no backend)
-  with a **Personal Access Token** fallback.
+- **GitHub sign-in** with a **Personal Access Token** — no OAuth App, client
+  secret, or backend.
 - **Read-only**: it never changes anything on GitHub. Mark things read on
   github.com and it reflects on the next poll.
 - Polls the GitHub Notifications API roughly every **60 seconds**, respecting the
@@ -37,7 +37,7 @@ make install    # copies GitHubNotifier.app to /Applications
 ```
 
 No App Store, code signing, or notarization required. The build ad-hoc signs the
-app locally so Keychain, notifications, and the OAuth browser flow work.
+app locally so the Keychain and notifications work.
 
 ### Requirements
 - macOS 14+
@@ -45,42 +45,29 @@ app locally so Keychain, notifications, and the OAuth browser flow work.
 
 ---
 
-## Authentication
+## Authentication — Personal Access Token
 
-### Option A — Personal Access Token (simplest, no setup)
-1. Launch the app, click the menu bar icon.
-2. Click **"Sign in another way"**, paste a token.
-3. The token needs the **`notifications`** and **`repo`** scopes (the `repo`
-   scope is what grants access to *private* repository notifications).
-4. The token is stored in your **macOS Keychain**.
+The app signs in with a **GitHub Personal Access Token**. No OAuth App, client
+secret, or backend — each person just pastes their own token. Every teammate does
+the same one-minute step; nothing is shared or hosted.
 
-Create a token at: GitHub → Settings → Developer settings → Personal access
-tokens.
-
-### Option B — OAuth (GitHub Device Flow)
-OAuth uses GitHub's **Device Flow**, which needs only the OAuth App's *client id*
-(not secret). That means **no backend and nothing secret to distribute** — great
-for teams.
-
-**One-time setup (by whoever distributes the app):**
-1. Create an OAuth App: GitHub → Settings → Developer settings → **OAuth Apps** →
-   *New OAuth App*. Any name/homepage URL is fine; the callback URL is unused by
-   Device Flow.
-2. On the app's page, **check "Enable Device Flow"**.
-3. Copy the **Client ID** and bake it into the build so teammates need nothing:
-   set `bundledClientID` in `Sources/GitHubNotifier/Support/AppConfig.swift`.
-   *(Alternatively, each person can drop a `~/Library/Application
-   Support/GitHubNotifier/config.json` = `{ "clientID": "Iv1.xxxx" }`.)*
-
-**Signing in:** click **"Sign in with GitHub"** → the app copies a short code and
-opens `github.com/login/device` → paste the code and click **Authorize**. Done —
-no client secret, no backend, no per-teammate setup.
+1. Create a token (classic): GitHub → Settings → Developer settings →
+   **Personal access tokens (classic)** → *Generate new token*. The app's
+   **"Create a token on GitHub"** link opens this page with the scopes
+   preselected.
+   - Scopes: **`notifications`** and **`repo`** (the `repo` scope grants access to
+     *private* repository notifications).
+   - Tip: use *classic* tokens — fine-grained tokens have limited notifications
+     access. Set "No expiration" if you'd rather not regenerate later.
+2. Launch the app, click the menu bar icon, paste the token, **Sign in**.
+3. The token is stored in your **macOS Keychain** (never written to disk in the
+   clear, never leaves your machine).
 
 ---
 
 ## First run
 
-1. Sign in (OAuth or token).
+1. Sign in with your token.
 2. **Choose repositories to watch** — this onboarding step is required; you only
    get notifications for the repos you pick.
 3. Notifications appear in the dropdown within ~60s, and new ones raise a banner.
@@ -99,11 +86,11 @@ Click the gear in the dropdown:
 
 | # | Scenario | Where |
 |---|----------|-------|
-| 1 | Install → OAuth (Device Flow) → pick repos → first notifications | `make run`, `LoginView`, `RepoSelectionView`, `NotificationPoller` |
+| 1 | Install → token sign-in → pick repos → first notifications | `make run`, `LoginView`, `RepoSelectionView`, `NotificationPoller` |
 | 2 | Badge + dropdown list + type icons + unread + read-sync | `BadgeRenderer`, `DropdownView`, `NotificationRowView`, read-only poll |
 | 3 | New item → system banner → click → browser | `SystemNotificationManager` |
 | 4 | Network loss → silent retry → icon warning → auto-recover | `NotificationPoller` backoff + `ConnectionStatus` |
-| 5 | PAT fallback sign-in | `LoginView` + `AuthManager.signInWithPAT` |
+| 5 | Token sign-in + validation + Keychain storage | `LoginView` + `AuthManager.signIn(withToken:)` |
 | 6 | Settings: badge toggle, subscriptions, launch-at-login, logout | `SettingsView`, `LoginItemManager` |
 
 ---
@@ -113,7 +100,7 @@ Click the gear in the dropdown:
 ```
 Sources/GitHubNotifier/
 ├── App/            main.swift, AppDelegate, AppState, StatusItemController, BadgeRenderer
-├── Auth/           AuthManager, OAuthService (GitHub Device Flow)
+├── Auth/           AuthManager (Personal Access Token)
 ├── GitHub/         GitHubAPIClient (GET-only), NotificationPoller (~60s loop)
 ├── Models/         GitHubNotification + enums
 ├── Notifications/  SystemNotificationManager (UserNotifications)
@@ -140,5 +127,5 @@ Sources/GitHubNotifier/
 ## Out of scope (MVP)
 
 CI/merge/release notifications, marking read from the app (write/PATCH), multiple
-GitHub accounts, App Store distribution, and any auth backend (Device Flow keeps
+GitHub accounts, App Store distribution, and any auth backend (token auth keeps
 the app fully client-side).

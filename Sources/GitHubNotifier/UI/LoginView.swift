@@ -1,15 +1,16 @@
 import SwiftUI
-import AppKit
 
-/// Sign-in screen. OAuth is primary; a Personal Access Token is the secondary
-/// "sign in another way" path.
+/// Sign-in screen. The app authenticates with a GitHub Personal Access Token —
+/// no OAuth App, client secret, or backend required.
 struct LoginView: View {
     @EnvironmentObject private var app: AppState
-    @State private var showingPAT = false
-    @State private var patInput = ""
+    @State private var tokenInput = ""
+
+    private let createTokenURL =
+        "https://github.com/settings/tokens/new?scopes=notifications,repo&description=GitHub%20Notifier"
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 18) {
             Spacer()
 
             Image(systemName: "bell.badge.fill")
@@ -25,10 +26,30 @@ struct LoginView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if let prompt = app.auth.deviceCodePrompt {
-                deviceCodeCard(prompt)
-            } else if case .signingIn = app.auth.state {
-                ProgressView().padding(.top, 4)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sign in with a GitHub token")
+                    .font(.callout).bold()
+
+                SecureField("Personal Access Token", text: $tokenInput)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(submit)
+
+                Button {
+                    app.openInBrowser(createTokenURL)
+                } label: {
+                    Label("Create a token on GitHub", systemImage: "arrow.up.forward.square")
+                        .font(.caption)
+                }
+                .buttonStyle(.link)
+
+                Text("Needs the **notifications** and **repo** scopes (repo grants private-repo access). The token is stored in your macOS Keychain.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 24)
+
+            if case .signingIn = app.auth.state {
+                ProgressView().controlSize(.small)
             }
 
             if case let .error(message) = app.auth.state {
@@ -39,34 +60,14 @@ struct LoginView: View {
                     .padding(.horizontal)
             }
 
-            VStack(spacing: 10) {
-                Button {
-                    Task { await app.auth.signInWithOAuth() }
-                } label: {
-                    Label("Sign in with GitHub", systemImage: "arrow.right.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .disabled(!app.auth.isOAuthAvailable || isBusy)
-
-                if !app.auth.isOAuthAvailable {
-                    Text("OAuth isn't configured — sign in with a token below.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button("Sign in another way") {
-                    showingPAT.toggle()
-                }
-                .buttonStyle(.link)
-                .font(.callout)
+            Button(action: submit) {
+                Text("Sign in")
+                    .frame(maxWidth: .infinity)
             }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .disabled(tokenInput.isEmpty || isBusy)
             .padding(.horizontal, 24)
-
-            if showingPAT {
-                patEntry
-            }
 
             Spacer()
         }
@@ -78,58 +79,8 @@ struct LoginView: View {
         return false
     }
 
-    private func deviceCodeCard(_ prompt: DeviceCodePrompt) -> some View {
-        VStack(spacing: 10) {
-            Text("Enter this code on GitHub")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text(prompt.userCode)
-                .font(.system(.title, design: .monospaced))
-                .bold()
-                .textSelection(.enabled)
-                .padding(.horizontal, 14).padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
-
-            Text("We copied the code and opened GitHub in your browser.\nPaste it there and click Authorize.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            HStack(spacing: 8) {
-                Button("Copy code") { copyToClipboard(prompt.userCode) }
-                    .buttonStyle(.bordered)
-                Button("Open GitHub") {
-                    if let url = URL(string: prompt.verificationURI) { app.openInBrowser(url.absoluteString) }
-                }
-                .buttonStyle(.bordered)
-            }
-            ProgressView().controlSize(.small)
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.06)))
-        .padding(.horizontal, 16)
-    }
-
-    private func copyToClipboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    private var patEntry: some View {
-        VStack(spacing: 8) {
-            SecureField("Personal Access Token", text: $patInput)
-                .textFieldStyle(.roundedBorder)
-            Text("Needs `notifications` and `repo` scopes.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Button("Sign in with token") {
-                Task { await app.auth.signInWithPAT(patInput) }
-            }
-            .buttonStyle(.bordered)
-            .disabled(patInput.isEmpty || isBusy)
-        }
-        .padding(.horizontal, 24)
-        .transition(.opacity)
+    private func submit() {
+        guard !tokenInput.isEmpty, !isBusy else { return }
+        Task { await app.auth.signIn(withToken: tokenInput) }
     }
 }
