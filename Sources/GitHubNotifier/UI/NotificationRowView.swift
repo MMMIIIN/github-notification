@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// A single notification row: a tinted type icon, the title with unread emphasis,
-/// and a secondary line (repo · author · relative time). Highlights on hover.
+/// A compact notification row with a quiet, native macOS visual hierarchy.
 struct NotificationRowView: View {
     let notification: GitHubNotification
     var preview: String? = nil
@@ -13,8 +12,8 @@ struct NotificationRowView: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            iconBadge
+        HStack(alignment: .top, spacing: 10) {
+            typeIcon
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(headline)
@@ -61,46 +60,40 @@ struct NotificationRowView: View {
                     .fill(Color.accentColor)
                     .frame(width: 8, height: 8)
                     .padding(.top, 4)
-            } else if let onDelete {
+            } else if let onDelete, hovering {
                 Button(action: onDelete) {
                     Image(systemName: "trash")
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tertiary)
                         .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
                 .help("Remove this read notification")
             }
         }
-        .padding(.vertical, 9)
-        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(hovering ? Color.primary.opacity(0.06) : Color.clear)
-                .padding(.horizontal, 4)
+            Rectangle()
+                .fill(hovering ? Color.primary.opacity(0.035) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture { if !isResolving { onTap() } }
         .onHover { hovering = $0 }
     }
 
-    private var iconBadge: some View {
+    private var typeIcon: some View {
         Image(systemName: notification.notificationType.symbolName)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 30, height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(tint.opacity(0.14))
-            )
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(notification.isUnread ? Color.primary : Color.secondary)
+            .frame(width: 18, height: 20)
+            .padding(.top, 1)
     }
 
     private var typeLabel: some View {
         Text(notification.notificationType.label)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(tint.opacity(0.13)))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
     }
 
     private var headline: String {
@@ -110,14 +103,6 @@ struct NotificationRowView: View {
         return notification.title
     }
 
-    private var tint: Color {
-        switch notification.notificationType {
-        case .reviewRequest: return .green
-        case .reviewComment: return .blue
-        case .issueMention:  return .purple
-        case .other:         return .secondary
-        }
-    }
 }
 
 /// Compact relative-time formatting ("3m", "2h", "yesterday").

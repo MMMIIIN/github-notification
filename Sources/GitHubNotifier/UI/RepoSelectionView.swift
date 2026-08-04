@@ -44,8 +44,10 @@ struct RepoSelectionView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(.top, 14)
-        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var repoList: some View {
@@ -58,8 +60,8 @@ struct RepoSelectionView: View {
                     .textFieldStyle(.plain)
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
-            .padding(.horizontal, 12)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.045)))
+            .padding(.horizontal, 14)
 
             List {
                 ForEach(filteredRepos) { repo in
@@ -67,7 +69,7 @@ struct RepoSelectionView: View {
                         toggle(repo.fullName)
                     } label: {
                         HStack {
-                            Image(systemName: selected.contains(repo.fullName) ? "checkmark.circle.fill" : "circle")
+                            Image(systemName: selected.contains(repo.fullName) ? "checkmark.square.fill" : "square")
                                 .foregroundStyle(selected.contains(repo.fullName) ? Color.accentColor : Color.secondary)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(repo.fullName).font(.callout)

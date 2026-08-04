@@ -24,11 +24,9 @@ struct DropdownView: View {
             Text("Notifications")
                 .font(.headline)
             if app.poller.unreadCount > 0 {
-                Text("\(app.poller.unreadCount)")
-                    .font(.caption2).monospacedDigit().bold()
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.red))
+                Text("\(app.poller.unreadCount) unread")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             IconButton(system: "arrow.clockwise", help: "Refresh now") {
@@ -72,7 +70,7 @@ struct DropdownView: View {
             emptyState
         } else {
             ScrollView {
-                LazyVStack(spacing: 1, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     ForEach(repositoryGroups) { group in
                         Section {
                             ForEach(group.notifications) { item in
@@ -119,26 +117,31 @@ struct DropdownView: View {
     }
 
     private func repositoryHeader(_ group: RepositoryGroup) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "shippingbox")
-                .foregroundStyle(.secondary)
+        HStack(spacing: 7) {
+            Image(systemName: "folder")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
             Text(group.name)
-                .font(.caption).bold()
+                .font(.caption)
+                .fontWeight(.medium)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
             if group.unreadCount > 0 {
-                Text("\(group.unreadCount) unread")
-                    .font(.caption2)
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 5, height: 5)
+                Text("\(group.unreadCount)")
+                    .font(.caption2).monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            Text("\(group.notifications.count)")
-                .font(.caption2).monospacedDigit()
-                .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.bar)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 
     private var emptyState: some View {
@@ -163,18 +166,30 @@ struct DropdownView: View {
 
     private var footer: some View {
         HStack {
-            IconButton(system: "gearshape", help: "Settings") {
+            Button {
                 showingSettings = true
+            } label: {
+                Label("Settings", systemImage: "gearshape")
             }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundStyle(.secondary)
             Spacer()
-            Button("Open on GitHub") {
+            Button {
                 app.openInBrowser("https://github.com/notifications")
+            } label: {
+                HStack(spacing: 4) {
+                    Text("GitHub Notifications")
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption2)
+                }
             }
-            .buttonStyle(.link)
-            .font(.callout)
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 

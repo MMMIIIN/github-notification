@@ -20,13 +20,16 @@ struct SettingsView: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 0) {
                     accountSection
+                    Divider().padding(.vertical, 16)
                     badgeSection
+                    Divider().padding(.vertical, 16)
                     subscriptionsSection
+                    Divider().padding(.vertical, 16)
                     startupSection
                 }
-                .padding(16)
+                .padding(18)
             }
 
             Divider()
@@ -127,8 +130,10 @@ struct SettingsView: View {
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text.uppercased())
-            .font(.caption2).bold()
-            .foregroundStyle(.secondary)
+            .font(.caption2)
+            .fontWeight(.medium)
+            .foregroundStyle(.tertiary)
+            .tracking(0.4)
     }
 
     private var accountLabel: String {

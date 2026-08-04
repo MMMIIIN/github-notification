@@ -10,16 +10,17 @@ struct LoginView: View {
         "https://github.com/settings/tokens/new?scopes=notifications,repo&description=GitHub%20Notifier"
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 20) {
             Spacer()
 
-            Image(systemName: "bell.badge.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.tint)
+            Image(systemName: "bell")
+                .font(.system(size: 36, weight: .regular))
+                .foregroundStyle(.primary)
 
             VStack(spacing: 6) {
                 Text("GitHub Notifier")
-                    .font(.title2).bold()
+                    .font(.title2)
+                    .fontWeight(.semibold)
                 Text("Review requests, comments, and mentions —\nright in your menu bar.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -28,7 +29,8 @@ struct LoginView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Sign in with a GitHub token")
-                    .font(.callout).bold()
+                    .font(.callout)
+                    .fontWeight(.medium)
 
                 SecureField("Personal Access Token", text: $tokenInput)
                     .textFieldStyle(.roundedBorder)
