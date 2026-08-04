@@ -22,6 +22,7 @@ struct NotificationsPollResult {
 struct NotificationTarget {
     let url: String
     let preview: String?
+    let author: String?
 }
 
 /// A repository the user can subscribe to during onboarding.
@@ -147,10 +148,16 @@ struct GitHubAPIClient {
         struct CommentRef: Decodable {
             let html_url: String?
             let body: String?
+            let user: User?
+            struct User: Decodable { let login: String }
         }
         guard let comment = try? JSONDecoder().decode(CommentRef.self, from: data),
               let htmlURL = comment.html_url else { return nil }
-        return NotificationTarget(url: htmlURL, preview: Self.previewText(comment.body))
+        return NotificationTarget(
+            url: htmlURL,
+            preview: Self.previewText(comment.body),
+            author: comment.user?.login
+        )
     }
 
     /// Builds the exact browser anchor without a network round-trip for issue
@@ -219,11 +226,19 @@ struct GitHubAPIClient {
             let needle = "@\(login)".lowercased()
             let mentions = candidates.filter { $0.body.lowercased().contains(needle) }
             if let best = Self.closestComment(in: mentions, to: notificationDate) {
-                return NotificationTarget(url: best.htmlURL, preview: Self.previewText(best.body))
+                return NotificationTarget(
+                    url: best.htmlURL,
+                    preview: Self.previewText(best.body),
+                    author: best.author
+                )
             }
         }
         guard let best = Self.closestComment(in: candidates, to: notificationDate) else { return nil }
-        return NotificationTarget(url: best.htmlURL, preview: Self.previewText(best.body))
+        return NotificationTarget(
+            url: best.htmlURL,
+            preview: Self.previewText(best.body),
+            author: best.author
+        )
     }
 
     /// Prefer a comment at or just before the notification timestamp. This
@@ -249,6 +264,36 @@ struct GitHubAPIClient {
         }
         struct Thread: Decodable { let body: String? }
         return (try? JSONDecoder().decode(Thread.self, from: data)).flatMap { Self.previewText($0.body) }
+    }
+
+    /// Finds who requested the review from the PR timeline event nearest to the
+    /// notification. The Notifications API itself does not include this actor.
+    func fetchReviewRequester(repoFullName: String, number: Int?, login: String?,
+                              notificationDate: Date) async -> String? {
+        guard let number else { return nil }
+        let parts = repoFullName.split(separator: "/")
+        guard parts.count == 2 else { return nil }
+        let path = "repos/\(parts[0])/\(parts[1])/issues/\(number)/timeline"
+        guard let data = await fetchLastPageData(path: path) else { return nil }
+
+        struct Event: Decodable {
+            let event: String?
+            let created_at: Date?
+            let actor: User?
+            let requested_reviewer: User?
+            struct User: Decodable { let login: String }
+        }
+        let events = (try? Self.decoder.decode([Event].self, from: data)) ?? []
+        let matching = events.filter { event in
+            guard event.event == "review_requested", event.created_at != nil else { return false }
+            guard let login else { return true }
+            return event.requested_reviewer?.login.caseInsensitiveCompare(login) == .orderedSame
+                || event.requested_reviewer == nil
+        }
+        return matching.min {
+            abs(($0.created_at ?? .distantPast).timeIntervalSince(notificationDate))
+                < abs(($1.created_at ?? .distantPast).timeIntervalSince(notificationDate))
+        }?.actor?.login
     }
 
     /// Converts a Markdown body into a compact, single-line preview.
@@ -282,6 +327,7 @@ struct GitHubAPIClient {
         let date: Date
         let htmlURL: String
         let body: String
+        let author: String?
     }
 
     private enum CommentDateKey { case created, submitted }
@@ -294,13 +340,20 @@ struct GitHubAPIClient {
             let body: String?
             let created_at: Date?
             let submitted_at: Date?
+            let user: User?
+            struct User: Decodable { let login: String }
         }
         let raw = (try? Self.decoder.decode([Raw].self, from: data)) ?? []
         return raw.compactMap { item in
             guard let html = item.html_url else { return nil }
             let date = (dateKey == .created ? item.created_at : item.submitted_at)
             guard let date else { return nil }
-            return ThreadComment(date: date, htmlURL: html, body: item.body ?? "")
+            return ThreadComment(
+                date: date,
+                htmlURL: html,
+                body: item.body ?? "",
+                author: item.user?.login
+            )
         }
     }
 

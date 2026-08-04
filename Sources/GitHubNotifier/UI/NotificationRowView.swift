@@ -4,6 +4,7 @@ import SwiftUI
 struct NotificationRowView: View {
     let notification: GitHubNotification
     var preview: String? = nil
+    var resolvedAuthor: String? = nil
     var isResolving = false
     var showsRepository = true
     let onTap: () -> Void
@@ -38,10 +39,10 @@ struct NotificationRowView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
-                    if let author = notification.author {
+                    if let author = resolvedAuthor ?? notification.author {
                         Text("·"); Text("@\(author)").lineLimit(1)
                     }
-                    if showsRepository || notification.author != nil { Text("·") }
+                    if showsRepository || resolvedAuthor != nil || notification.author != nil { Text("·") }
                     Text(RelativeTime.string(for: notification.updatedAt))
                 }
                 .font(.caption2)

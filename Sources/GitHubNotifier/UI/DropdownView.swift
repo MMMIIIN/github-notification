@@ -77,6 +77,7 @@ struct DropdownView: View {
                                 NotificationRowView(
                                     notification: item,
                                     preview: app.notificationPreviews[item.id],
+                                    resolvedAuthor: app.notificationAuthors[item.id],
                                     isResolving: app.resolvingNotificationIDs.contains(item.id),
                                     showsRepository: false,
                                     onTap: {
