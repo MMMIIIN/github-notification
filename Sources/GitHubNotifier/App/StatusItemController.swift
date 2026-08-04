@@ -28,8 +28,44 @@ final class StatusItemController {
         guard let button = statusItem.button else { return }
         button.imagePosition = .imageOnly
         button.target = self
-        button.action = #selector(togglePopover)
+        button.action = #selector(handleClick)
+        // Receive both left- and right-clicks so we can show a context menu.
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.toolTip = "GitHub Notifier"
+    }
+
+    @objc private func handleClick() {
+        let event = NSApp.currentEvent
+        let isRightClick = event?.type == .rightMouseUp
+            || (event?.type == .leftMouseUp && event?.modifierFlags.contains(.control) == true)
+        if isRightClick {
+            showContextMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    private func showContextMenu() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown { closePopover() }
+
+        let menu = NSMenu()
+        let header = NSMenuItem(title: "GitHub Notifier", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit GitHub Notifier", action: #selector(quit), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
+
+        // Pop up at the button without assigning statusItem.menu, so normal
+        // left-click behavior is preserved.
+        let origin = NSPoint(x: 0, y: button.bounds.height + 4)
+        menu.popUp(positioning: nil, at: origin, in: button)
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
     }
 
     private func configurePopover() {
