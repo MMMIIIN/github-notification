@@ -9,7 +9,7 @@ APP_BUNDLE  := .build/$(APP_NAME).app
 CONTENTS    := $(APP_BUNDLE)/Contents
 INSTALL_DIR := /Applications
 
-.PHONY: all build bundle sign run install clean
+.PHONY: all build bundle sign kill run install update clean
 
 all: bundle
 
@@ -38,17 +38,32 @@ sign:
 		--sign - "$(APP_BUNDLE)" 2>/dev/null || \
 		codesign --force --deep --sign - "$(APP_BUNDLE)"
 
-## Build, assemble, and launch
+## Quit every running instance (so a rebuild actually takes effect on relaunch)
+kill:
+	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
+
+## Build, assemble, and (re)launch — quits the old instance first
 run: bundle
-	@echo "==> Launching $(APP_NAME)"
+	@echo "==> Restarting $(APP_NAME)"
+	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
+	@sleep 1
 	@open "$(APP_BUNDLE)"
 
-## Install to /Applications
+## Install to /Applications and relaunch from there
 install: bundle
 	@echo "==> Installing to $(INSTALL_DIR)"
+	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
+	@sleep 1
 	@rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
 	@cp -R "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app"
-	@echo "==> Installed. Launch it from /Applications or Spotlight."
+	@open "$(INSTALL_DIR)/$(APP_NAME).app"
+	@echo "==> Installed and launched from $(INSTALL_DIR)."
+
+## One-touch update for teammates: pull latest, rebuild, relaunch
+update:
+	@echo "==> Pulling latest"
+	@git pull --ff-only
+	@$(MAKE) --no-print-directory install
 
 clean:
 	swift package clean
