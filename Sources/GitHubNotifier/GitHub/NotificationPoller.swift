@@ -54,6 +54,14 @@ final class NotificationPoller: ObservableObject {
         restart()
     }
 
+    /// Hides a read item locally. The app remains read-only with respect to
+    /// GitHub, and the persisted id prevents it returning on the next poll.
+    func dismissReadNotification(id: String) {
+        guard let item = notifications.first(where: { $0.id == id }), !item.isUnread else { return }
+        settings.dismissedNotificationIDs.insert(id)
+        notifications.removeAll { $0.id == id }
+    }
+
     private func restart() {
         pollTask?.cancel()
         guard token != nil else { return }
@@ -117,6 +125,7 @@ final class NotificationPoller: ObservableObject {
         let filtered = incoming
             .filter { subscribed.isEmpty ? false : subscribed.contains($0.repositoryName) }
             .filter { allowedTypes.contains($0.notificationType) }
+            .filter { !settings.dismissedNotificationIDs.contains($0.id) }
             .sorted { $0.updatedAt > $1.updatedAt }
 
         let trimmed = Array(filtered.prefix(recentLimit))

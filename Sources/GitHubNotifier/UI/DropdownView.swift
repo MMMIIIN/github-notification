@@ -74,9 +74,16 @@ struct DropdownView: View {
             ScrollView {
                 LazyVStack(spacing: 1) {
                     ForEach(app.poller.notifications) { item in
-                        NotificationRowView(notification: item) {
-                            app.openNotification(item)
-                        }
+                        NotificationRowView(
+                            notification: item,
+                            isResolving: app.resolvingNotificationIDs.contains(item.id),
+                            onTap: {
+                                app.openNotification(item)
+                            },
+                            onDelete: item.isUnread ? nil : {
+                                app.dismissReadNotification(item)
+                            }
+                        )
                     }
                 }
                 .padding(.vertical, 6)

@@ -183,11 +183,23 @@ struct GitHubAPIClient {
         guard parts.count == 2 else { return nil }
         let owner = String(parts[0]), repo = String(parts[1])
 
-        var candidates: [ThreadComment] = []
-        candidates += await fetchThreadComments(path: "repos/\(owner)/\(repo)/issues/\(number)/comments", dateKey: .created)
+        async let issueComments = fetchThreadComments(
+            path: "repos/\(owner)/\(repo)/issues/\(number)/comments",
+            dateKey: .created
+        )
+
+        var candidates = await issueComments
         if isPR {
-            candidates += await fetchThreadComments(path: "repos/\(owner)/\(repo)/pulls/\(number)/comments", dateKey: .created)
-            candidates += await fetchThreadComments(path: "repos/\(owner)/\(repo)/pulls/\(number)/reviews", dateKey: .submitted)
+            async let reviewComments = fetchThreadComments(
+                path: "repos/\(owner)/\(repo)/pulls/\(number)/comments",
+                dateKey: .created
+            )
+            async let reviews = fetchThreadComments(
+                path: "repos/\(owner)/\(repo)/pulls/\(number)/reviews",
+                dateKey: .submitted
+            )
+            candidates += await reviewComments
+            candidates += await reviews
         }
         guard !candidates.isEmpty else { return nil }
 

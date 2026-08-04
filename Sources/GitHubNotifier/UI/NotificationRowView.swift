@@ -4,55 +4,69 @@ import SwiftUI
 /// and a secondary line (repo · author · relative time). Highlights on hover.
 struct NotificationRowView: View {
     let notification: GitHubNotification
+    var isResolving = false
     let onTap: () -> Void
+    var onDelete: (() -> Void)? = nil
 
     @State private var hovering = false
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(alignment: .top, spacing: 11) {
-                iconBadge
+        HStack(alignment: .top, spacing: 11) {
+            iconBadge
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(headline)
-                        .font(.callout)
-                        .fontWeight(notification.isUnread ? .semibold : .regular)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(headline)
+                    .font(.callout)
+                    .fontWeight(notification.isUnread ? .semibold : .regular)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 5) {
-                        Text(notification.repositoryName)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let author = notification.author {
-                            Text("·"); Text("@\(author)").lineLimit(1)
-                        }
-                        Text("·"); Text(RelativeTime.string(for: notification.updatedAt))
+                HStack(spacing: 5) {
+                    typeLabel
+                    Text(notification.repositoryName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let author = notification.author {
+                        Text("·"); Text("@\(author)").lineLimit(1)
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    Text("·"); Text(RelativeTime.string(for: notification.updatedAt))
                 }
-
-                Spacer(minLength: 0)
-
-                if notification.isUnread {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 4)
-                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 9)
-            .padding(.horizontal, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(hovering ? Color.primary.opacity(0.06) : Color.clear)
-                    .padding(.horizontal, 4)
-            )
-            .contentShape(Rectangle())
+
+            Spacer(minLength: 0)
+
+            if isResolving {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 16, height: 16)
+                    .padding(.top, 2)
+            } else if notification.isUnread {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 4)
+            } else if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Remove this read notification")
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(hovering ? Color.primary.opacity(0.06) : Color.clear)
+                .padding(.horizontal, 4)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { if !isResolving { onTap() } }
         .onHover { hovering = $0 }
     }
 
@@ -65,6 +79,15 @@ struct NotificationRowView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(tint.opacity(0.14))
             )
+    }
+
+    private var typeLabel: some View {
+        Text(notification.notificationType.label)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(tint.opacity(0.13)))
     }
 
     private var headline: String {

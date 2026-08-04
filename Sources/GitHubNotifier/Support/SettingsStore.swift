@@ -16,6 +16,7 @@ final class SettingsStore: ObservableObject {
         static let authMethod = "authMethod"
         static let etag = "notificationsETag"
         static let onboarded = "hasCompletedOnboarding"
+        static let dismissedNotificationIDs = "dismissedNotificationIDs"
     }
 
     /// Full names ("org/repo") the user chose to watch.
@@ -34,6 +35,11 @@ final class SettingsStore: ObservableObject {
     /// True once the user has passed the mandatory repo-subscription onboarding.
     @Published var hasCompletedOnboarding: Bool {
         didSet { defaults.set(hasCompletedOnboarding, forKey: Keys.onboarded) }
+    }
+
+    /// Read notifications the user explicitly removed from the local list.
+    @Published var dismissedNotificationIDs: Set<String> {
+        didSet { defaults.set(Array(dismissedNotificationIDs), forKey: Keys.dismissedNotificationIDs) }
     }
 
     var authMethod: AuthMethod? {
@@ -55,6 +61,7 @@ final class SettingsStore: ObservableObject {
         self.badgeStyle = BadgeStyle(rawValue: defaults.string(forKey: Keys.badgeStyle) ?? "") ?? .number
         self.autoLaunch = defaults.bool(forKey: Keys.autoLaunch)
         self.hasCompletedOnboarding = defaults.bool(forKey: Keys.onboarded)
+        self.dismissedNotificationIDs = Set(defaults.stringArray(forKey: Keys.dismissedNotificationIDs) ?? [])
     }
 
     /// Clears preferences on logout (token is cleared separately via KeychainStore).
@@ -63,5 +70,6 @@ final class SettingsStore: ObservableObject {
         hasCompletedOnboarding = false
         authMethod = nil
         notificationsETag = nil
+        dismissedNotificationIDs = []
     }
 }

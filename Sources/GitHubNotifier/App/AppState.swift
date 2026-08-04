@@ -14,6 +14,8 @@ final class AppState: ObservableObject {
     @Published var availableRepos: [RepositorySummary] = []
     @Published var isLoadingRepos = false
     @Published var repoLoadError: String?
+    /// Rows currently waiting for a deep link to be resolved after a click.
+    @Published private(set) var resolvingNotificationIDs: Set<String> = []
 
     /// High-level screen the popover should show.
     enum Screen: Equatable {
@@ -25,6 +27,13 @@ final class AppState: ObservableObject {
     @Published private(set) var screen: Screen = .login
 
     private var cancellables: Set<AnyCancellable> = []
+    private struct CachedDeepLink {
+        let notificationDate: Date
+        let url: String
+    }
+    private var deepLinkCache: [String: CachedDeepLink] = [:]
+    private var resolutionTasks: [String: Task<String, Never>] = [:]
+    private var prefetchTask: Task<Void, Never>?
 
     init() {
         // React to auth changes: drive the screen and the poller.
@@ -40,6 +49,16 @@ final class AppState: ObservableObject {
             .sink { [weak self] _ in self?.recomputeScreen() }
             .store(in: &cancellables)
 
+        // Resolve the most recent links in the background so normal clicks can
+        // open immediately. Keep this bounded to avoid a burst of API traffic.
+        poller.$notifications
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notifications in
+                self?.prefetchDeepLinks(for: Array(notifications.prefix(12)))
+            }
+            .store(in: &cancellables)
+
         recomputeScreen()
     }
 
@@ -53,6 +72,12 @@ final class AppState: ObservableObject {
             }
         } else {
             poller.stop()
+            prefetchTask?.cancel()
+            prefetchTask = nil
+            resolutionTasks.values.forEach { $0.cancel() }
+            resolutionTasks = [:]
+            deepLinkCache = [:]
+            resolvingNotificationIDs = []
             availableRepos = []
             recomputeScreen()
         }
@@ -114,45 +139,82 @@ final class AppState: ObservableObject {
             return
         }
 
-        // A review request has no triggering comment to scroll to. GitHub's
-        // useful destination for that notification is the Files changed view.
-        if notification.notificationType == .reviewRequest {
-            openInBrowser(GitHubAPIClient.reviewURL(from: notification.url))
+        if let immediate = immediateDeepLink(for: notification) {
+            openInBrowser(immediate)
             return
         }
 
-        let login = auth.currentLogin
+        if let cached = cachedDeepLink(for: notification) {
+            openInBrowser(cached)
+            return
+        }
+
+        resolvingNotificationIDs.insert(notification.id)
         Task {
+            let url = await resolveDeepLink(for: notification, token: token)
+            resolvingNotificationIDs.remove(notification.id)
+            openInBrowser(url)
+        }
+    }
+
+    private func immediateDeepLink(for notification: GitHubNotification) -> String? {
+        if notification.notificationType == .reviewRequest {
+            return GitHubAPIClient.reviewURL(from: notification.url)
+        }
+        guard let commentURL = notification.commentAPIURL else { return nil }
+        return GitHubAPIClient.localCommentHTMLURL(
+            commentAPIURL: commentURL,
+            threadHTMLURL: notification.url
+        )
+    }
+
+    private func cachedDeepLink(for notification: GitHubNotification) -> String? {
+        guard let cached = deepLinkCache[notification.id],
+              cached.notificationDate == notification.updatedAt else { return nil }
+        return cached.url
+    }
+
+    private func resolveDeepLink(for notification: GitHubNotification, token: String) async -> String {
+        if let immediate = immediateDeepLink(for: notification) { return immediate }
+        if let cached = cachedDeepLink(for: notification) { return cached }
+        if let existing = resolutionTasks[notification.id] { return await existing.value }
+
+        let login = auth.currentLogin
+        let task = Task<String, Never> {
             let client = GitHubAPIClient(token: token)
-
-            if let commentURL = notification.commentAPIURL,
-               let html = GitHubAPIClient.localCommentHTMLURL(
-                   commentAPIURL: commentURL,
-                   threadHTMLURL: notification.url
-               ) {
-                openInBrowser(html)
-                return
-            }
-
             if let commentURL = notification.commentAPIURL,
                let html = await client.resolveCommentHTMLURL(commentAPIURL: commentURL),
                URL(string: html)?.fragment?.isEmpty == false {
-                openInBrowser(html)
-                return
+                return html
             }
-
-            if let html = await client.findScrollTarget(
+            return await client.findScrollTarget(
                 repoFullName: notification.repositoryName,
                 number: notification.number,
                 isPR: notification.isPullRequest,
                 login: login,
                 preferMention: notification.notificationType == .issueMention
-            ) {
-                openInBrowser(html)
-                return
-            }
+            ) ?? notification.url
+        }
+        resolutionTasks[notification.id] = task
+        let url = await task.value
+        resolutionTasks[notification.id] = nil
+        deepLinkCache[notification.id] = CachedDeepLink(
+            notificationDate: notification.updatedAt,
+            url: url
+        )
+        return url
+    }
 
-            openInBrowser(notification.url)
+    private func prefetchDeepLinks(for notifications: [GitHubNotification]) {
+        guard let token = auth.token else { return }
+        prefetchTask?.cancel()
+        prefetchTask = Task { [weak self] in
+            guard let self else { return }
+            for notification in notifications where !Task.isCancelled {
+                guard immediateDeepLink(for: notification) == nil,
+                      cachedDeepLink(for: notification) == nil else { continue }
+                _ = await resolveDeepLink(for: notification, token: token)
+            }
         }
     }
 
@@ -168,6 +230,15 @@ final class AppState: ObservableObject {
 
     func signOut() {
         auth.signOut()
+    }
+
+    func dismissReadNotification(_ notification: GitHubNotification) {
+        guard !notification.isUnread else { return }
+        deepLinkCache[notification.id] = nil
+        resolutionTasks[notification.id]?.cancel()
+        resolutionTasks[notification.id] = nil
+        resolvingNotificationIDs.remove(notification.id)
+        poller.dismissReadNotification(id: notification.id)
     }
 
     /// Called from Settings when the subscription list changes while signed in.
