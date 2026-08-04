@@ -26,6 +26,15 @@ req = urllib.request.Request(
 with urllib.request.urlopen(req) as resp:
     items = json.load(resp)
 
+
+def github_get(url):
+    request = urllib.request.Request(url, headers=req.headers)
+    try:
+        with urllib.request.urlopen(request) as response:
+            return json.load(response)
+    except Exception as error:
+        return {"_diagnostic_error": str(error)}
+
 if not items:
     print("No notifications returned. Try triggering one (mention yourself), then rerun.")
     sys.exit(0)
@@ -45,4 +54,7 @@ print("\nlatest_comment_url values:")
 for n in items:
     subj = n.get("subject", {})
     if subj.get("latest_comment_url"):
-        print(" ", subj["latest_comment_url"])
+        api_url = subj["latest_comment_url"]
+        resolved = github_get(api_url)
+        print(" ", api_url)
+        print("    ->", resolved.get("html_url") or resolved.get("_diagnostic_error") or "no html_url")

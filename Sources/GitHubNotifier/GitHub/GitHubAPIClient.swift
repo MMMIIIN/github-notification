@@ -142,6 +142,34 @@ struct GitHubAPIClient {
         return (try? JSONDecoder().decode(CommentRef.self, from: data))?.html_url
     }
 
+    /// Builds the exact browser anchor without a network round-trip for issue
+    /// comments. The Notifications API gives both the thread URL and a stable
+    /// comment id, so this remains reliable even when resolving the API URL
+    /// fails temporarily.
+    static func localCommentHTMLURL(commentAPIURL: String, threadHTMLURL: String) -> String? {
+        guard let components = URLComponents(string: commentAPIURL) else { return nil }
+        let parts = components.path.split(separator: "/")
+        guard parts.count >= 3 else { return nil }
+
+        if parts.dropLast().suffix(2).elementsEqual(["issues", "comments"]),
+           let id = parts.last, id.allSatisfy(\.isNumber) {
+            return "\(threadHTMLURL)#issuecomment-\(id)"
+        }
+        return nil
+    }
+
+    /// Review requests do not identify a comment. Open the PR's review surface
+    /// rather than the conversation header, which previously looked like a
+    /// failed scroll.
+    static func reviewURL(from threadHTMLURL: String) -> String {
+        guard var components = URLComponents(string: threadHTMLURL),
+              components.path.contains("/pull/") else { return threadHTMLURL }
+        components.fragment = nil
+        components.path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/files"
+        components.path = "/" + components.path
+        return components.url?.absoluteString ?? threadHTMLURL
+    }
+
     /// Finds the exact comment to scroll to when the notification's
     /// `latest_comment_url` doesn't point at a real comment (GitHub often returns
     /// the PR/issue itself). Scans the thread's issue comments, PR review
@@ -290,8 +318,11 @@ private struct APINotification: Decodable {
 
     func toDomain() -> GitHubNotification? {
         let type = NotificationType.from(reason: reason, subjectType: subject.type)
+        // Keep the canonical thread URL as the fallback. A latest-comment API
+        // URL such as `/issues/comments/123` does not contain the issue number
+        // and cannot be converted into a valid thread URL on its own.
         let browserURL = APINotification.htmlURL(
-            apiURL: subject.latest_comment_url ?? subject.url,
+            apiURL: subject.url,
             fallbackRepo: repository.full_name
         )
         let number = APINotification.extractNumber(from: subject.url)

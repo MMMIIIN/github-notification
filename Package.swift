@@ -13,6 +13,11 @@ let package = Package(
         .executableTarget(
             name: "GitHubNotifier",
             path: "Sources/GitHubNotifier"
+        ),
+        .testTarget(
+            name: "GitHubNotifierTests",
+            dependencies: ["GitHubNotifier"],
+            path: "Tests/GitHubNotifierTests"
         )
     ]
 )

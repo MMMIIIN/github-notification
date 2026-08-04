@@ -113,12 +113,30 @@ final class AppState: ObservableObject {
             openInBrowser(notification.url)
             return
         }
+
+        // A review request has no triggering comment to scroll to. GitHub's
+        // useful destination for that notification is the Files changed view.
+        if notification.notificationType == .reviewRequest {
+            openInBrowser(GitHubAPIClient.reviewURL(from: notification.url))
+            return
+        }
+
         let login = auth.currentLogin
         Task {
             let client = GitHubAPIClient(token: token)
 
-            if let commentURL = notification.commentAPIURL, commentURL.contains("/comments/"),
-               let html = await client.resolveCommentHTMLURL(commentAPIURL: commentURL) {
+            if let commentURL = notification.commentAPIURL,
+               let html = GitHubAPIClient.localCommentHTMLURL(
+                   commentAPIURL: commentURL,
+                   threadHTMLURL: notification.url
+               ) {
+                openInBrowser(html)
+                return
+            }
+
+            if let commentURL = notification.commentAPIURL,
+               let html = await client.resolveCommentHTMLURL(commentAPIURL: commentURL),
+               URL(string: html)?.fragment?.isEmpty == false {
                 openInBrowser(html)
                 return
             }
