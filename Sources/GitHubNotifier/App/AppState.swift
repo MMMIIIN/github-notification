@@ -100,20 +100,51 @@ final class AppState: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
-    /// Opens a notification in the browser, scrolling to the exact comment when
-    /// one is present by resolving its `#anchor` first; falls back to the thread.
+    /// Opens a notification in the browser, scrolling to the exact comment.
+    ///
+    /// GitHub's notification often gives no real comment URL (it points at the
+    /// PR/issue itself), so we resolve the precise location in two steps:
+    ///   1. If `latest_comment_url` is a real comment, use its `#anchor` html_url.
+    ///   2. Otherwise scan the thread for the latest comment that @mentions me
+    ///      (or the latest overall) and open that.
+    /// Falls back to the thread/PR page if nothing resolves.
     func openNotification(_ notification: GitHubNotification) {
-        open(url: notification.url, commentAPIURL: notification.commentAPIURL)
-    }
-
-    func open(url: String, commentAPIURL: String?) {
-        guard let commentAPIURL, let token = auth.token else {
-            openInBrowser(url)
+        guard let token = auth.token else {
+            openInBrowser(notification.url)
             return
         }
+        let login = auth.currentLogin
         Task {
-            let resolved = await GitHubAPIClient(token: token).resolveCommentHTMLURL(commentAPIURL: commentAPIURL)
-            openInBrowser(resolved ?? url)
+            let client = GitHubAPIClient(token: token)
+
+            if let commentURL = notification.commentAPIURL, commentURL.contains("/comments/"),
+               let html = await client.resolveCommentHTMLURL(commentAPIURL: commentURL) {
+                openInBrowser(html)
+                return
+            }
+
+            if let html = await client.findScrollTarget(
+                repoFullName: notification.repositoryName,
+                number: notification.number,
+                isPR: notification.isPullRequest,
+                login: login,
+                preferMention: notification.notificationType == .issueMention
+            ) {
+                openInBrowser(html)
+                return
+            }
+
+            openInBrowser(notification.url)
+        }
+    }
+
+    /// Opens by notification id (used by banner clicks), resolving to the exact
+    /// comment when the notification is still in the current list.
+    func openNotification(byID id: String, fallbackURL: String) {
+        if let match = poller.notifications.first(where: { $0.id == id }) {
+            openNotification(match)
+        } else {
+            openInBrowser(fallbackURL)
         }
     }
 

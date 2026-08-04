@@ -16,6 +16,8 @@ final class AuthManager: ObservableObject {
     @Published private(set) var state: State = .signedOut
     /// The active token, or nil when signed out. Read by the poller.
     @Published private(set) var token: String?
+    /// The signed-in user's login, used to locate @mentions in a thread.
+    @Published private(set) var currentLogin: String?
 
     init() {
         // Restore a previous session from the Keychain on launch.
@@ -41,6 +43,7 @@ final class AuthManager: ObservableObject {
             KeychainStore.saveToken(trimmed)
             SettingsStore.shared.authMethod = .pat
             self.token = trimmed
+            self.currentLogin = login
             self.state = .signedIn(login: login)
         } catch GitHubAPIError.unauthorized {
             state = .error("That token was rejected. Check its scopes (needs notifications and repo).")
@@ -52,6 +55,7 @@ final class AuthManager: ObservableObject {
     private func validateRestoredToken(_ token: String) async {
         do {
             let login = try await GitHubAPIClient(token: token).fetchAuthenticatedUserLogin()
+            currentLogin = login
             state = .signedIn(login: login)
         } catch GitHubAPIError.unauthorized {
             // Token revoked/expired — force re-auth.
@@ -68,6 +72,7 @@ final class AuthManager: ObservableObject {
         KeychainStore.deleteToken()
         SettingsStore.shared.resetForLogout()
         token = nil
+        currentLogin = nil
         state = .signedOut
     }
 }

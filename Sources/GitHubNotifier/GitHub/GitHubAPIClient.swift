@@ -142,6 +142,94 @@ struct GitHubAPIClient {
         return (try? JSONDecoder().decode(CommentRef.self, from: data))?.html_url
     }
 
+    /// Finds the exact comment to scroll to when the notification's
+    /// `latest_comment_url` doesn't point at a real comment (GitHub often returns
+    /// the PR/issue itself). Scans the thread's issue comments, PR review
+    /// comments, and reviews, and returns the `html_url` (with its `#anchor`) of
+    /// the most recent one that @mentions `login` — or the most recent overall.
+    /// Returns nil if nothing usable is found.
+    func findScrollTarget(repoFullName: String, number: Int?, isPR: Bool,
+                          login: String?, preferMention: Bool) async -> String? {
+        guard let number else { return nil }
+        let parts = repoFullName.split(separator: "/")
+        guard parts.count == 2 else { return nil }
+        let owner = String(parts[0]), repo = String(parts[1])
+
+        var candidates: [ThreadComment] = []
+        candidates += await fetchThreadComments(path: "repos/\(owner)/\(repo)/issues/\(number)/comments", dateKey: .created)
+        if isPR {
+            candidates += await fetchThreadComments(path: "repos/\(owner)/\(repo)/pulls/\(number)/comments", dateKey: .created)
+            candidates += await fetchThreadComments(path: "repos/\(owner)/\(repo)/pulls/\(number)/reviews", dateKey: .submitted)
+        }
+        guard !candidates.isEmpty else { return nil }
+
+        if preferMention, let login {
+            let needle = "@\(login)".lowercased()
+            let mentions = candidates.filter { $0.body.lowercased().contains(needle) }
+            if let best = mentions.max(by: { $0.date < $1.date }) { return best.htmlURL }
+        }
+        return candidates.max(by: { $0.date < $1.date })?.htmlURL
+    }
+
+    private struct ThreadComment {
+        let date: Date
+        let htmlURL: String
+        let body: String
+    }
+
+    private enum CommentDateKey { case created, submitted }
+
+    /// Fetches the most recent page of a paginated comment/review list.
+    private func fetchThreadComments(path: String, dateKey: CommentDateKey) async -> [ThreadComment] {
+        guard let data = await fetchLastPageData(path: path) else { return [] }
+        struct Raw: Decodable {
+            let html_url: String?
+            let body: String?
+            let created_at: Date?
+            let submitted_at: Date?
+        }
+        let raw = (try? Self.decoder.decode([Raw].self, from: data)) ?? []
+        return raw.compactMap { item in
+            guard let html = item.html_url else { return nil }
+            let date = (dateKey == .created ? item.created_at : item.submitted_at)
+            guard let date else { return nil }
+            return ThreadComment(date: date, htmlURL: html, body: item.body ?? "")
+        }
+    }
+
+    /// GETs page 1 (per_page=100) and, if the Link header advertises more pages,
+    /// the last page — so we see the newest comments regardless of thread length.
+    private func fetchLastPageData(path: String) async -> Data? {
+        let firstQuery = [URLQueryItem(name: "per_page", value: "100")]
+        guard let (data1, http1) = try? await send(makeRequest(path: path, query: firstQuery)),
+              http1.statusCode == 200 else { return nil }
+
+        if let link = http1.value(forHTTPHeaderField: "Link"),
+           let last = Self.lastPage(fromLinkHeader: link), last > 1 {
+            let lastQuery = [
+                URLQueryItem(name: "per_page", value: "100"),
+                URLQueryItem(name: "page", value: String(last))
+            ]
+            if let (dataN, httpN) = try? await send(makeRequest(path: path, query: lastQuery)),
+               httpN.statusCode == 200 {
+                return dataN
+            }
+        }
+        return data1
+    }
+
+    /// Parses the `page=N` of the `rel="last"` entry from a Link header.
+    static func lastPage(fromLinkHeader link: String) -> Int? {
+        for part in link.split(separator: ",") {
+            guard part.contains("rel=\"last\"") else { continue }
+            guard let range = part.range(of: "page=") else { continue }
+            let tail = part[range.upperBound...]
+            let digits = tail.prefix { $0.isNumber }
+            return Int(digits)
+        }
+        return nil
+    }
+
     // MARK: - Notifications (conditional poll)
 
     /// Polls `/notifications` with an ETag conditional request. Returns 304-aware result.
@@ -217,6 +305,7 @@ private struct APINotification: Decodable {
             author: nil,
             url: browserURL,
             commentAPIURL: subject.latest_comment_url,
+            isPullRequest: subject.type == "PullRequest",
             isUnread: unread,
             updatedAt: updated_at
         )

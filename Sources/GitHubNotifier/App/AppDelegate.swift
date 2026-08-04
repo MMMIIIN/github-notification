@@ -22,8 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(appState: appState)
 
         systemNotifications.requestAuthorization()
-        systemNotifications.onOpen = { [weak self] urlString, commentAPIURL in
-            self?.appState.open(url: urlString, commentAPIURL: commentAPIURL)
+        systemNotifications.onOpen = { [weak self] id, fallbackURL in
+            self?.appState.openNotification(byID: id, fallbackURL: fallbackURL)
         }
 
         // New unread notifications → raise banners.
