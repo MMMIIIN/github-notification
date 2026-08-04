@@ -77,7 +77,10 @@ final class StatusItemController {
     private func showPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        // Agent apps aren't active by default; activate so the popover's text
+        // fields receive keyboard input (typing, ⌘V paste, etc.).
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
 
         // Close when the user clicks outside the popover.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
