@@ -1,131 +1,185 @@
 # GitHub Notifier
 
-A lightweight **macOS menu bar app** that surfaces the GitHub notifications that
-matter to you — **review requests, review comments, and issue mentions** — from
-the repositories you choose, including private ones. No more digging through
-email.
+GitHub Notifier는 중요한 GitHub 알림을 메뉴 막대에서 바로 확인할 수 있는
+가벼운 macOS 앱입니다. 선택한 저장소의 **리뷰 요청, 리뷰 댓글, 멘션**만
+모아서 보여주며 비공개 저장소도 지원합니다.
 
-- **Menu bar icon** (`NSStatusItem`) with an unread **number badge** or **dot**
-  (your choice), and a warning state when something's wrong.
-- **Dropdown panel** listing recent notifications with per-type icons/colors and
-  unread emphasis. Click an item to open it in your browser.
-- **System notification banners** for new items; click a banner to jump straight
-  to the PR/issue/comment.
-- **GitHub sign-in** with a **Personal Access Token** — no OAuth App, client
-  secret, or backend.
-- **Read-only**: it never changes anything on GitHub. Mark things read on
-  github.com and it reflects on the next poll.
-- Polls the GitHub Notifications API roughly every **60 seconds**, respecting the
-  server's `X-Poll-Interval` and using `ETag` conditional requests to stay light.
+알림은 저장소별로 묶여 표시됩니다. 제목뿐 아니라 댓글·PR 본문 미리보기와
+작성자도 함께 확인할 수 있고, 항목을 누르면 브라우저에서 해당 PR의 리뷰
+화면이나 정확한 댓글 위치로 이동합니다.
 
-Built with Swift / SwiftUI, targets **macOS 14 (Sonoma)+**.
+## 주요 기능
 
----
+- 메뉴 막대에서 읽지 않은 알림 개수 또는 점 표시
+- 선택한 저장소의 리뷰 요청, 리뷰 댓글, 멘션만 필터링
+- 저장소별 알림 그룹 및 읽지 않은 알림 수 표시
+- 댓글·PR 내용 미리보기와 작성자 표시
+- 알림 클릭 시 PR의 Files changed 화면 또는 정확한 댓글 위치로 이동
+- 새 알림 도착 시 macOS 시스템 알림 표시
+- 읽은 알림을 앱 목록에서 개별 삭제
+- 네트워크 오류 시 자동 재시도 및 메뉴 막대 경고 표시
+- 로그인 시 자동 실행 설정
+- Personal Access Token을 macOS Keychain에 안전하게 저장
 
-## Install (git clone + one command)
+GitHub Notifier는 GitHub 데이터를 수정하지 않는 read-only 앱입니다. 앱에서
+읽은 알림을 삭제해도 GitHub의 원본 알림은 삭제되지 않고, 이 Mac의 목록에서만
+숨겨집니다.
+
+## 요구 사항
+
+- macOS 14 Sonoma 이상
+- Xcode Command Line Tools
+- Swift 5.9 이상
+
+Swift 설치 여부는 다음 명령으로 확인할 수 있습니다.
 
 ```bash
-git clone <this-repo-url> github_noti
-cd github_noti
-make run        # builds, assembles GitHubNotifier.app, and launches it
+swift --version
 ```
 
-That's it — a menu bar bell icon appears. To keep it around:
+## 설치 및 실행
+
+저장소를 내려받고 `make run`을 실행합니다.
 
 ```bash
-make install    # copies GitHubNotifier.app to /Applications
+git clone https://github.com/MMMIIIN/github-notification.git
+cd github-notification
+make run
 ```
 
-No App Store, code signing, or notarization required. The build ad-hoc signs the
-app locally so the Keychain and notifications work.
+빌드가 끝나면 메뉴 막대에 종 모양 아이콘이 나타납니다. 앱을
+`/Applications`에 설치하려면 다음 명령을 사용합니다.
 
-### Requirements
-- macOS 14+
-- Xcode command line tools / Swift 5.9+ toolchain (`swift --version`)
-
----
-
-## Authentication — Personal Access Token
-
-The app signs in with a **GitHub Personal Access Token**. No OAuth App, client
-secret, or backend — each person just pastes their own token. Every teammate does
-the same one-minute step; nothing is shared or hosted.
-
-1. Create a token (classic): GitHub → Settings → Developer settings →
-   **Personal access tokens (classic)** → *Generate new token*. The app's
-   **"Create a token on GitHub"** link opens this page with the scopes
-   preselected.
-   - Scopes: **`notifications`** and **`repo`** (the `repo` scope grants access to
-     *private* repository notifications).
-   - Tip: use *classic* tokens — fine-grained tokens have limited notifications
-     access. Set "No expiration" if you'd rather not regenerate later.
-2. Launch the app, click the menu bar icon, paste the token, **Sign in**.
-3. The token is stored in your **macOS Keychain** (never written to disk in the
-   clear, never leaves your machine).
-
----
-
-## First run
-
-1. Sign in with your token.
-2. **Choose repositories to watch** — this onboarding step is required; you only
-   get notifications for the repos you pick.
-3. Notifications appear in the dropdown within ~60s, and new ones raise a banner.
-
-## Settings
-
-Click the gear in the dropdown:
-- **Menu bar badge**: unread count ↔ dot.
-- **Subscribed repositories**: add/remove at any time.
-- **Launch at login**: toggle (uses `SMAppService`).
-- **Sign out**: clears the token from the Keychain.
-
----
-
-## How it maps to the acceptance scenarios
-
-| # | Scenario | Where |
-|---|----------|-------|
-| 1 | Install → token sign-in → pick repos → first notifications | `make run`, `LoginView`, `RepoSelectionView`, `NotificationPoller` |
-| 2 | Badge + dropdown list + type icons + unread + read-sync | `BadgeRenderer`, `DropdownView`, `NotificationRowView`, read-only poll |
-| 3 | New item → system banner → click → browser | `SystemNotificationManager` |
-| 4 | Network loss → silent retry → icon warning → auto-recover | `NotificationPoller` backoff + `ConnectionStatus` |
-| 5 | Token sign-in + validation + Keychain storage | `LoginView` + `AuthManager.signIn(withToken:)` |
-| 6 | Settings: badge toggle, subscriptions, launch-at-login, logout | `SettingsView`, `LoginItemManager` |
-
----
-
-## Architecture
-
+```bash
+make install
 ```
+
+App Store 배포 앱이 아니므로 로컬에서 ad-hoc 서명합니다. 이 서명은 Keychain과
+macOS 알림 기능을 안정적으로 사용하기 위한 것입니다.
+
+## GitHub 토큰 설정
+
+앱은 별도 서버나 OAuth App 없이 GitHub Personal Access Token으로 로그인합니다.
+토큰은 GitHub API 요청에만 사용되며 macOS Keychain에 저장됩니다.
+
+1. GitHub의 **Settings → Developer settings → Personal access tokens → Tokens
+   (classic)**으로 이동합니다.
+2. `Generate new token (classic)`을 선택합니다.
+3. 다음 scope를 선택합니다.
+   - `notifications`: 알림 조회
+   - `repo`: 비공개 저장소와 해당 알림 조회
+4. 생성된 토큰을 복사합니다. 토큰은 GitHub에서 다시 표시되지 않으므로 생성 직후
+   저장해야 합니다.
+5. 메뉴 막대의 GitHub Notifier를 열고 토큰을 붙여 넣은 뒤 **Sign in**을 누릅니다.
+
+앱 로그인 화면의 **Create a token on GitHub** 링크를 사용하면 필요한 scope가
+미리 선택된 토큰 생성 페이지를 열 수 있습니다. 알림 API 지원 범위 때문에
+fine-grained token보다 classic token 사용을 권장합니다.
+
+## 사용법
+
+### 처음 시작하기
+
+1. Personal Access Token으로 로그인합니다.
+2. 알림을 확인할 저장소를 하나 이상 선택합니다.
+3. 초기 조회가 끝나면 메뉴 막대 아이콘과 드롭다운에 알림이 표시됩니다.
+
+앱은 약 60초마다 GitHub Notifications API를 확인합니다. GitHub가 제공하는
+`X-Poll-Interval`과 `ETag`를 사용하므로 변경이 없을 때는 응답 데이터를 다시
+받지 않습니다.
+
+### 알림 확인하기
+
+- 메뉴 막대의 종 아이콘을 클릭하면 알림 목록이 열립니다.
+- 알림은 저장소별로 묶이고 각 그룹 안에서는 최신순으로 정렬됩니다.
+- 각 항목에서 알림 유형, 제목, 내용 미리보기, 작성자, 시간을 확인할 수 있습니다.
+- 리뷰 요청을 누르면 PR의 **Files changed** 화면이 열립니다.
+- 댓글이나 멘션을 누르면 가능한 경우 해당 댓글 앵커로 바로 이동합니다.
+- 상단 새로고침 버튼을 누르면 다음 주기를 기다리지 않고 즉시 다시 조회합니다.
+
+정확한 댓글 링크와 미리보기는 최근 알림부터 백그라운드에서 미리 조회하여
+메모리에 캐시합니다. 아직 준비되지 않은 항목을 누르면 행에 로딩 표시가 나타난
+뒤 브라우저가 열립니다. 비공개 저장소의 본문과 작성자는 디스크에 저장하지
+않습니다.
+
+### 읽은 알림 삭제하기
+
+GitHub 웹사이트에서 알림을 읽으면 다음 폴링 때 앱에도 읽은 상태가 반영됩니다.
+읽은 항목에 마우스를 올리면 휴지통 버튼이 나타납니다.
+
+휴지통 버튼은 해당 항목을 이 Mac의 GitHub Notifier 목록에서만 숨깁니다. GitHub
+서버의 알림이나 PR·이슈·댓글은 변경하지 않습니다. 읽지 않은 알림은 실수로
+숨기지 않도록 삭제할 수 없습니다.
+
+### 시스템 알림
+
+앱 실행 후 새 읽지 않은 알림이 도착하면 macOS 배너와 소리로 알려줍니다. 배너를
+클릭해도 앱 목록에서 클릭한 것과 동일하게 정확한 리뷰·댓글 위치를 찾습니다.
+
+### 설정
+
+드롭다운 아래쪽의 **Settings**에서 다음 항목을 변경할 수 있습니다.
+
+- **Menu bar badge**: 읽지 않은 개수 또는 점
+- **Subscribed repositories**: 구독 저장소 추가 및 제거
+- **Launch at login**: macOS 로그인 시 자동 실행
+- **Sign out**: Keychain 토큰, 구독 저장소와 로컬 알림 캐시 초기화
+
+## 업데이트
+
+설치된 앱을 최신 코드로 업데이트하고 다시 실행합니다.
+
+```bash
+make update
+```
+
+이 명령은 `git pull --ff-only` 후 release 앱을 다시 빌드하여
+`/Applications/GitHubNotifier.app`에 설치합니다.
+
+## 개발
+
+프로젝트는 Swift Package Manager 기반이며 외부 패키지 의존성이 없습니다.
+
+```bash
+swift build       # debug 빌드
+swift test        # 단위 테스트
+make run          # release 앱 번들 빌드 및 실행
+```
+
+### 프로젝트 구조
+
+```text
 Sources/GitHubNotifier/
-├── App/            main.swift, AppDelegate, AppState, StatusItemController, BadgeRenderer
-├── Auth/           AuthManager (Personal Access Token)
-├── GitHub/         GitHubAPIClient (GET-only), NotificationPoller (~60s loop)
-├── Models/         GitHubNotification + enums
-├── Notifications/  SystemNotificationManager (UserNotifications)
-├── Support/        KeychainStore, SettingsStore, LoginItemManager, AppConfig
-└── UI/             RootView, LoginView, RepoSelectionView, DropdownView,
-                    NotificationRowView, SettingsView
+├── App/            앱 생명주기, 상태, 메뉴 막대 아이콘
+├── Auth/           PAT 인증
+├── GitHub/         REST API 클라이언트와 알림 폴러
+├── Models/         알림 및 설정 모델
+├── Notifications/  macOS 시스템 알림
+├── Support/        Keychain, UserDefaults, 로그인 항목
+└── UI/             로그인, 저장소 선택, 알림 목록, 설정 화면
 ```
 
-- **Storage**: `UserDefaults` (prefs, subscribed repos, ETag) + **Keychain**
-  (token). No database.
-- **Polling**: conditional `GET /notifications` (`If-None-Match` / `ETag`),
-  filtered to your subscribed repos and the three notification types.
+로컬 데이터는 다음과 같이 나뉩니다.
 
-## Make targets
+- **Keychain**: GitHub Personal Access Token
+- **UserDefaults**: 구독 저장소, 배지 설정, ETag, 로컬에서 숨긴 알림 ID
+- **메모리 전용**: 댓글·PR 미리보기, 작성자, 해석된 딥링크
 
-| Target | Does |
-|--------|------|
-| `make run` | build + assemble `.app` + launch |
-| `make build` | compile the release binary |
-| `make bundle` | assemble the ad-hoc-signed `.app` |
-| `make install` | copy to `/Applications` |
-| `make clean` | remove build artifacts |
+### Make 명령
 
-## Out of scope (MVP)
+| 명령 | 설명 |
+|---|---|
+| `make build` | release 실행 파일 빌드 |
+| `make bundle` | `.build/GitHubNotifier.app` 생성 및 ad-hoc 서명 |
+| `make run` | 앱 번들을 빌드하고 기존 프로세스를 종료한 뒤 실행 |
+| `make install` | 앱을 `/Applications`에 설치하고 실행 |
+| `make update` | 원격 변경을 받은 뒤 다시 설치 |
+| `make clean` | SwiftPM 및 앱 번들 빌드 결과 삭제 |
 
-CI/merge/release notifications, marking read from the app (write/PATCH), multiple
-GitHub accounts, App Store distribution, and any auth backend (token auth keeps
-the app fully client-side).
+## 현재 지원하지 않는 기능
+
+- 앱에서 GitHub 알림을 읽음으로 표시하는 기능
+- CI, merge, release 등 모든 GitHub 알림 유형 표시
+- 여러 GitHub 계정 동시 사용
+- App Store 배포 및 notarization
+- GitHub 데이터를 수정하는 기능
