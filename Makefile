@@ -25,6 +25,7 @@ bundle: build
 	@mkdir -p "$(CONTENTS)/Resources"
 	@cp "$(BUILD_DIR)/$(APP_NAME)" "$(CONTENTS)/MacOS/$(APP_NAME)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
+	@cp Resources/AppIcon.icns "$(CONTENTS)/Resources/AppIcon.icns"
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@$(MAKE) --no-print-directory sign
 	@echo "==> Built $(APP_BUNDLE)"

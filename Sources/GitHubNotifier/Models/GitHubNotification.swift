@@ -53,7 +53,8 @@ struct GitHubNotification: Identifiable, Codable, Equatable {
     let title: String
     let number: Int?                  // PR/issue number, if resolvable
     let author: String?
-    let url: String                   // browser-navigable URL
+    let url: String                   // browser-navigable URL (thread/subject)
+    let commentAPIURL: String?        // latest_comment_url; resolved to a #anchor on click
     let isUnread: Bool
     let updatedAt: Date
 

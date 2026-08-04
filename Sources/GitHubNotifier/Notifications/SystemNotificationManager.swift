@@ -5,11 +5,12 @@ import UserNotifications
 /// notifications and opens the corresponding page in the browser on click.
 @MainActor
 final class SystemNotificationManager: NSObject {
-    /// Called with a URL string when the user clicks a banner.
-    var onOpenURL: ((String) -> Void)?
+    /// Called with (thread URL, optional comment API URL) when a banner is clicked.
+    var onOpen: ((String, String?) -> Void)?
 
     private let center = UNUserNotificationCenter.current()
     private nonisolated static let urlKey = "targetURL"
+    private nonisolated static let commentKey = "commentAPIURL"
 
     override init() {
         super.init()
@@ -29,7 +30,10 @@ final class SystemNotificationManager: NSObject {
             content.subtitle = item.repositoryName
             content.body = item.title
             content.sound = .default
-            content.userInfo = [Self.urlKey: item.url]
+            content.userInfo = [
+                Self.urlKey: item.url,
+                Self.commentKey: item.commentAPIURL as Any
+            ]
 
             let request = UNNotificationRequest(
                 identifier: item.id,
@@ -59,8 +63,9 @@ extension SystemNotificationManager: UNUserNotificationCenterDelegate {
     ) {
         let userInfo = response.notification.request.content.userInfo
         if let urlString = userInfo[Self.urlKey] as? String {
+            let commentAPIURL = userInfo[Self.commentKey] as? String
             Task { @MainActor [weak self] in
-                self?.onOpenURL?(urlString)
+                self?.onOpen?(urlString, commentAPIURL)
             }
         }
         completionHandler()

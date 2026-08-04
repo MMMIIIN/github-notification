@@ -123,6 +123,25 @@ struct GitHubAPIClient {
         return results
     }
 
+    // MARK: - Comment deep-link resolution
+
+    /// Resolves a comment's API URL (e.g. the notification's `latest_comment_url`)
+    /// to its browser `html_url`, which carries the exact `#discussion_r…` /
+    /// `#issuecomment-…` anchor so the browser scrolls straight to the comment.
+    /// Returns nil on any failure so the caller can fall back to the thread URL.
+    func resolveCommentHTMLURL(commentAPIURL: String) async -> String? {
+        guard let url = URL(string: commentAPIURL) else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("GitHubNotifier/1.0", forHTTPHeaderField: "User-Agent")
+
+        guard let (data, http) = try? await send(request), http.statusCode == 200 else { return nil }
+        struct CommentRef: Decodable { let html_url: String? }
+        return (try? JSONDecoder().decode(CommentRef.self, from: data))?.html_url
+    }
+
     // MARK: - Notifications (conditional poll)
 
     /// Polls `/notifications` with an ETag conditional request. Returns 304-aware result.
@@ -197,6 +216,7 @@ private struct APINotification: Decodable {
             number: number,
             author: nil,
             url: browserURL,
+            commentAPIURL: subject.latest_comment_url,
             isUnread: unread,
             updatedAt: updated_at
         )

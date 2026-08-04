@@ -100,6 +100,23 @@ final class AppState: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    /// Opens a notification in the browser, scrolling to the exact comment when
+    /// one is present by resolving its `#anchor` first; falls back to the thread.
+    func openNotification(_ notification: GitHubNotification) {
+        open(url: notification.url, commentAPIURL: notification.commentAPIURL)
+    }
+
+    func open(url: String, commentAPIURL: String?) {
+        guard let commentAPIURL, let token = auth.token else {
+            openInBrowser(url)
+            return
+        }
+        Task {
+            let resolved = await GitHubAPIClient(token: token).resolveCommentHTMLURL(commentAPIURL: commentAPIURL)
+            openInBrowser(resolved ?? url)
+        }
+    }
+
     func signOut() {
         auth.signOut()
     }

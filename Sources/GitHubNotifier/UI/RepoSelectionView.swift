@@ -50,9 +50,16 @@ struct RepoSelectionView: View {
 
     private var repoList: some View {
         VStack(spacing: 6) {
-            TextField("Filter", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal, 12)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                TextField("Filter repositories", text: $search)
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
+            .padding(.horizontal, 12)
 
             List {
                 ForEach(filteredRepos) { repo in

@@ -1,4 +1,5 @@
 .build/
+build-tmp/
 .swiftpm/
 # oh-my-claudecode tooling state (not part of the app)
 .omc/

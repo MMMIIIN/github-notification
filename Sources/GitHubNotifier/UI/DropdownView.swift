@@ -20,27 +20,23 @@ struct DropdownView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text("Notifications")
                 .font(.headline)
             if app.poller.unreadCount > 0 {
                 Text("\(app.poller.unreadCount)")
-                    .font(.caption2).bold()
+                    .font(.caption2).monospacedDigit().bold()
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Capsule().fill(Color.red))
             }
             Spacer()
-            Button {
+            IconButton(system: "arrow.clockwise", help: "Refresh now") {
                 app.poller.refreshNow()
-            } label: {
-                Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(.borderless)
-            .help("Refresh now")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
     }
 
     // MARK: - Connection banner
@@ -64,7 +60,7 @@ struct DropdownView: View {
             Spacer()
         }
         .foregroundStyle(color)
-        .padding(.horizontal, 12).padding(.vertical, 6)
+        .padding(.horizontal, 14).padding(.vertical, 7)
         .background(color.opacity(0.12))
     }
 
@@ -76,53 +72,76 @@ struct DropdownView: View {
             emptyState
         } else {
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 1) {
                     ForEach(app.poller.notifications) { item in
                         NotificationRowView(notification: item) {
-                            app.openInBrowser(item.url)
+                            app.openNotification(item)
                         }
-                        Divider().padding(.leading, 46)
                     }
                 }
+                .padding(.vertical, 6)
             }
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Spacer()
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 34))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(.tertiary)
             Text("You're all caught up")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            Text("New review requests, comments, and mentions\nwill show up here.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
             Spacer()
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
         HStack {
-            Button {
+            IconButton(system: "gearshape", help: "Settings") {
                 showingSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                Text("Settings")
             }
-            .buttonStyle(.borderless)
-
             Spacer()
-
             Button("Open on GitHub") {
                 app.openInBrowser("https://github.com/notifications")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.link)
             .font(.callout)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// A borderless icon button with a hover highlight, used in the header/footer.
+struct IconButton: View {
+    let system: String
+    var help: String = ""
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(hovering ? Color.primary.opacity(0.08) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(help)
     }
 }
