@@ -72,24 +72,73 @@ struct DropdownView: View {
             emptyState
         } else {
             ScrollView {
-                LazyVStack(spacing: 1) {
-                    ForEach(app.poller.notifications) { item in
-                        NotificationRowView(
-                            notification: item,
-                            preview: app.notificationPreviews[item.id],
-                            isResolving: app.resolvingNotificationIDs.contains(item.id),
-                            onTap: {
-                                app.openNotification(item)
-                            },
-                            onDelete: item.isUnread ? nil : {
-                                app.dismissReadNotification(item)
+                LazyVStack(spacing: 1, pinnedViews: [.sectionHeaders]) {
+                    ForEach(repositoryGroups) { group in
+                        Section {
+                            ForEach(group.notifications) { item in
+                                NotificationRowView(
+                                    notification: item,
+                                    preview: app.notificationPreviews[item.id],
+                                    isResolving: app.resolvingNotificationIDs.contains(item.id),
+                                    showsRepository: false,
+                                    onTap: {
+                                        app.openNotification(item)
+                                    },
+                                    onDelete: item.isUnread ? nil : {
+                                        app.dismissReadNotification(item)
+                                    }
+                                )
                             }
-                        )
+                        } header: {
+                            repositoryHeader(group)
+                        }
                     }
                 }
                 .padding(.vertical, 6)
             }
         }
+    }
+
+    private struct RepositoryGroup: Identifiable {
+        let name: String
+        let notifications: [GitHubNotification]
+        var id: String { name }
+        var unreadCount: Int { notifications.filter(\.isUnread).count }
+        var newestDate: Date { notifications.first?.updatedAt ?? .distantPast }
+    }
+
+    private var repositoryGroups: [RepositoryGroup] {
+        Dictionary(grouping: app.poller.notifications, by: \.repositoryName)
+            .map { name, items in
+                RepositoryGroup(
+                    name: name,
+                    notifications: items.sorted { $0.updatedAt > $1.updatedAt }
+                )
+            }
+            .sorted { $0.newestDate > $1.newestDate }
+    }
+
+    private func repositoryHeader(_ group: RepositoryGroup) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "shippingbox")
+                .foregroundStyle(.secondary)
+            Text(group.name)
+                .font(.caption).bold()
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            if group.unreadCount > 0 {
+                Text("\(group.unreadCount) unread")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text("\(group.notifications.count)")
+                .font(.caption2).monospacedDigit()
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.bar)
     }
 
     private var emptyState: some View {

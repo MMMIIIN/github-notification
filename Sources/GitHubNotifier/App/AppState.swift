@@ -213,7 +213,8 @@ final class AppState: ObservableObject {
                 number: notification.number,
                 isPR: notification.isPullRequest,
                 login: login,
-                preferMention: notification.notificationType == .issueMention
+                preferMention: notification.notificationType == .issueMention,
+                notificationDate: notification.updatedAt
             ) ?? NotificationTarget(url: immediate ?? notification.url, preview: nil)
         }
         resolutionTasks[notification.id] = task

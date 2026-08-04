@@ -6,6 +6,7 @@ struct NotificationRowView: View {
     let notification: GitHubNotification
     var preview: String? = nil
     var isResolving = false
+    var showsRepository = true
     let onTap: () -> Void
     var onDelete: (() -> Void)? = nil
 
@@ -33,13 +34,16 @@ struct NotificationRowView: View {
 
                 HStack(spacing: 5) {
                     typeLabel
-                    Text(notification.repositoryName)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    if showsRepository {
+                        Text(notification.repositoryName)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                     if let author = notification.author {
                         Text("·"); Text("@\(author)").lineLimit(1)
                     }
-                    Text("·"); Text(RelativeTime.string(for: notification.updatedAt))
+                    if showsRepository || notification.author != nil { Text("·") }
+                    Text(RelativeTime.string(for: notification.updatedAt))
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)

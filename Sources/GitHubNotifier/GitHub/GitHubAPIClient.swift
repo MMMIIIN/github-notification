@@ -188,7 +188,8 @@ struct GitHubAPIClient {
     /// the most recent one that @mentions `login` — or the most recent overall.
     /// Returns nil if nothing usable is found.
     func findScrollTarget(repoFullName: String, number: Int?, isPR: Bool,
-                          login: String?, preferMention: Bool) async -> NotificationTarget? {
+                          login: String?, preferMention: Bool,
+                          notificationDate: Date) async -> NotificationTarget? {
         guard let number else { return nil }
         let parts = repoFullName.split(separator: "/")
         guard parts.count == 2 else { return nil }
@@ -217,12 +218,23 @@ struct GitHubAPIClient {
         if preferMention, let login {
             let needle = "@\(login)".lowercased()
             let mentions = candidates.filter { $0.body.lowercased().contains(needle) }
-            if let best = mentions.max(by: { $0.date < $1.date }) {
+            if let best = Self.closestComment(in: mentions, to: notificationDate) {
                 return NotificationTarget(url: best.htmlURL, preview: Self.previewText(best.body))
             }
         }
-        guard let best = candidates.max(by: { $0.date < $1.date }) else { return nil }
+        guard let best = Self.closestComment(in: candidates, to: notificationDate) else { return nil }
         return NotificationTarget(url: best.htmlURL, preview: Self.previewText(best.body))
+    }
+
+    /// Prefer a comment at or just before the notification timestamp. This
+    /// avoids jumping farther down to a newer comment added after the alert.
+    private static func closestComment(in candidates: [ThreadComment], to date: Date) -> ThreadComment? {
+        let tolerance: TimeInterval = 60
+        let eligible = candidates.filter { $0.date <= date.addingTimeInterval(tolerance) }
+        if !eligible.isEmpty {
+            return eligible.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+        }
+        return candidates.min { $0.date < $1.date }
     }
 
     /// Fetches the PR/issue description used as the preview for review requests.
