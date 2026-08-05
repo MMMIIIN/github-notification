@@ -19,6 +19,9 @@ final class AppState: ObservableObject {
     /// Ephemeral previews; private repository content is never persisted.
     @Published private(set) var notificationPreviews: [String: String] = [:]
     @Published private(set) var notificationAuthors: [String: String] = [:]
+    @Published private(set) var markingReadNotificationIDs: Set<String> = []
+    @Published private(set) var recentlyMarkedReadNotificationIDs: Set<String> = []
+    @Published private(set) var readActionError: String?
 
     /// High-level screen the popover should show.
     enum Screen: Equatable {
@@ -84,6 +87,9 @@ final class AppState: ObservableObject {
             deepLinkCache = [:]
             notificationPreviews = [:]
             notificationAuthors = [:]
+            markingReadNotificationIDs = []
+            recentlyMarkedReadNotificationIDs = []
+            readActionError = nil
             resolvingNotificationIDs = []
             availableRepos = []
             recomputeScreen()
@@ -144,6 +150,10 @@ final class AppState: ObservableObject {
         guard let token = auth.token else {
             openInBrowser(notification.url)
             return
+        }
+
+        if notification.isUnread {
+            markNotificationAsRead(notification)
         }
 
         if let immediate = immediateDeepLink(for: notification) {
@@ -288,6 +298,61 @@ final class AppState: ObservableObject {
         resolutionTasks[notification.id] = nil
         resolvingNotificationIDs.remove(notification.id)
         poller.dismissReadNotification(id: notification.id)
+    }
+
+    func dismissAllNotifications() {
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        resolutionTasks.values.forEach { $0.cancel() }
+        resolutionTasks = [:]
+        deepLinkCache = [:]
+        notificationPreviews = [:]
+        notificationAuthors = [:]
+        resolvingNotificationIDs = []
+        poller.dismissAllNotifications()
+    }
+
+    func sendTestNotification() {
+        poller.sendTestNotification()
+    }
+
+    func markNotificationAsRead(_ notification: GitHubNotification) {
+        guard notification.isUnread,
+              !markingReadNotificationIDs.contains(notification.id) else { return }
+
+        if notification.id.hasPrefix("test-") {
+            poller.setNotificationUnreadState(id: notification.id, isUnread: false)
+            showReadConfirmation(for: notification.id)
+            return
+        }
+        guard let token = auth.token else { return }
+
+        markingReadNotificationIDs.insert(notification.id)
+        // Optimistic update: make the interaction immediate. Roll back if the
+        // GitHub request fails.
+        poller.setNotificationUnreadState(id: notification.id, isUnread: false)
+        Task {
+            defer { markingReadNotificationIDs.remove(notification.id) }
+            do {
+                try await GitHubAPIClient(token: token).markNotificationRead(id: notification.id)
+                showReadConfirmation(for: notification.id)
+            } catch {
+                poller.setNotificationUnreadState(id: notification.id, isUnread: true)
+                readActionError = "Couldn’t mark the notification as read. Please try again."
+                Task {
+                    try? await Task.sleep(nanoseconds: 4_000_000_000)
+                    readActionError = nil
+                }
+            }
+        }
+    }
+
+    private func showReadConfirmation(for id: String) {
+        recentlyMarkedReadNotificationIDs.insert(id)
+        Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            recentlyMarkedReadNotificationIDs.remove(id)
+        }
     }
 
     /// Called from Settings when the subscription list changes while signed in.

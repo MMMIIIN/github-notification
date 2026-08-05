@@ -5,6 +5,7 @@ import SwiftUI
 struct DropdownView: View {
     @EnvironmentObject private var app: AppState
     @Binding var showingSettings: Bool
+    @State private var showingClearConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,6 +15,17 @@ struct DropdownView: View {
             content
             Divider()
             footer
+        }
+        .confirmationDialog(
+            "Remove all notifications?",
+            isPresented: $showingClearConfirmation
+        ) {
+            Button("Remove All", role: .destructive) {
+                app.dismissAllNotifications()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This hides all current notifications on this Mac, including unread ones. Nothing will be changed on GitHub.")
         }
     }
 
@@ -29,6 +41,13 @@ struct DropdownView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            IconButton(
+                system: "trash",
+                help: "Remove all notifications",
+                disabled: app.poller.notifications.isEmpty
+            ) {
+                showingClearConfirmation = true
+            }
             IconButton(system: "arrow.clockwise", help: "Refresh now") {
                 app.poller.refreshNow()
             }
@@ -41,13 +60,17 @@ struct DropdownView: View {
 
     @ViewBuilder
     private var connectionBanner: some View {
-        switch app.poller.connectionStatus {
-        case .connected:
-            EmptyView()
-        case .networkError:
-            banner(text: "Can't reach GitHub — retrying…", color: .orange, icon: "wifi.exclamationmark")
-        case .authError:
-            banner(text: "Sign-in expired. Open Settings to sign in again.", color: .red, icon: "exclamationmark.triangle.fill")
+        if let error = app.readActionError {
+            banner(text: error, color: .red, icon: "exclamationmark.circle")
+        } else {
+            switch app.poller.connectionStatus {
+            case .connected:
+                EmptyView()
+            case .networkError:
+                banner(text: "Can't reach GitHub — retrying…", color: .orange, icon: "wifi.exclamationmark")
+            case .authError:
+                banner(text: "Sign-in expired. Open Settings to sign in again.", color: .red, icon: "exclamationmark.triangle.fill")
+            }
         }
     }
 
@@ -79,13 +102,18 @@ struct DropdownView: View {
                                     preview: app.notificationPreviews[item.id],
                                     resolvedAuthor: app.notificationAuthors[item.id],
                                     isResolving: app.resolvingNotificationIDs.contains(item.id),
+                                    isMarkingRead: app.markingReadNotificationIDs.contains(item.id),
+                                    didMarkRead: app.recentlyMarkedReadNotificationIDs.contains(item.id),
                                     showsRepository: false,
                                     onTap: {
                                         app.openNotification(item)
                                     },
                                     onDelete: item.isUnread ? nil : {
                                         app.dismissReadNotification(item)
-                                    }
+                                    },
+                                    onMarkRead: item.isUnread ? {
+                                        app.markNotificationAsRead(item)
+                                    } : nil
                                 )
                             }
                         } header: {
@@ -198,6 +226,7 @@ struct DropdownView: View {
 struct IconButton: View {
     let system: String
     var help: String = ""
+    var disabled = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -206,14 +235,15 @@ struct IconButton: View {
             Image(systemName: system)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
+                .frame(width: 30, height: 30)
                 .background(
-                    RoundedRectangle(cornerRadius: 7)
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(hovering ? Color.primary.opacity(0.08) : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
         .onHover { hovering = $0 }
         .help(help)
     }

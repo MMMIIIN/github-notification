@@ -21,7 +21,8 @@ GitHub Notifier는 중요한 GitHub 알림을 메뉴 막대에서 바로 확인�
 - 로그인 시 자동 실행 설정
 - Personal Access Token을 macOS Keychain에 안전하게 저장
 
-GitHub Notifier는 GitHub 데이터를 수정하지 않는 read-only 앱입니다. 앱에서
+GitHub Notifier는 알림을 열거나 읽음 버튼을 누를 때 해당 GitHub 알림 thread를
+읽음으로 표시합니다. PR, 이슈, 댓글 등의 콘텐츠는 수정하지 않습니다. 앱에서
 읽은 알림을 삭제해도 GitHub의 원본 알림은 삭제되지 않고, 이 Mac의 목록에서만
 숨겨집니다.
 
@@ -104,8 +105,9 @@ fine-grained token보다 classic token 사용을 권장합니다.
 
 ### 읽은 알림 삭제하기
 
-GitHub 웹사이트에서 알림을 읽으면 다음 폴링 때 앱에도 읽은 상태가 반영됩니다.
-읽은 항목에 마우스를 올리면 휴지통 버튼이 나타납니다.
+알림을 클릭하면 브라우저를 여는 동시에 GitHub에서도 읽음으로 표시됩니다.
+브라우저를 열지 않고 읽음 처리만 하려면 unread 항목에 마우스를 올린 뒤
+봉투 열기 버튼을 누릅니다. 읽은 항목에는 휴지통 버튼이 나타납니다.
 
 휴지통 버튼은 해당 항목을 이 Mac의 GitHub Notifier 목록에서만 숨깁니다. GitHub
 서버의 알림이나 PR·이슈·댓글은 변경하지 않습니다. 읽지 않은 알림은 실수로
@@ -178,8 +180,7 @@ Sources/GitHubNotifier/
 
 ## 현재 지원하지 않는 기능
 
-- 앱에서 GitHub 알림을 읽음으로 표시하는 기능
 - CI, merge, release 등 모든 GitHub 알림 유형 표시
 - 여러 GitHub 계정 동시 사용
 - App Store 배포 및 notarization
-- GitHub 데이터를 수정하는 기능
+- PR, 이슈, 댓글 등 GitHub 콘텐츠를 수정하는 기능

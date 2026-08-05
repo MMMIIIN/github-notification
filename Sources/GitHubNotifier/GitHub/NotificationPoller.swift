@@ -54,12 +54,55 @@ final class NotificationPoller: ObservableObject {
         restart()
     }
 
-    /// Hides a read item locally. The app remains read-only with respect to
-    /// GitHub, and the persisted id prevents it returning on the next poll.
+    /// Hides a read item locally; the persisted id prevents it returning on the
+    /// next poll. This does not delete the GitHub notification.
     func dismissReadNotification(id: String) {
         guard let item = notifications.first(where: { $0.id == id }), !item.isUnread else { return }
         settings.dismissedNotificationIDs.insert(id)
         notifications.removeAll { $0.id == id }
+    }
+
+    /// Hides every currently visible item locally, including unread items.
+    /// Nothing is changed on GitHub.
+    func dismissAllNotifications() {
+        settings.dismissedNotificationIDs.formUnion(notifications.map(\.id))
+        notifications = []
+    }
+
+    /// Injects one in-memory notification through the same publisher used by a
+    /// real poll. This exercises the list, badge, banner, and sound without
+    /// changing anything on GitHub.
+    func sendTestNotification() {
+        let repository = settings.subscribedRepositories.first ?? "GitHubNotifier/Test"
+        let item = GitHubNotification(
+            id: "test-\(UUID().uuidString)",
+            repositoryName: repository,
+            organizationName: repository.split(separator: "/").first.map(String.init) ?? "GitHubNotifier",
+            notificationType: .reviewRequest,
+            title: "Test notification — review requested",
+            number: nil,
+            author: "github-notifier",
+            url: "https://github.com/notifications",
+            commentAPIURL: nil,
+            isPullRequest: true,
+            isUnread: true,
+            updatedAt: Date()
+        )
+        notifications.insert(item, at: 0)
+        seenUnreadIDs.insert(item.id)
+        newNotifications.send([item])
+    }
+
+    func setNotificationUnreadState(id: String, isUnread: Bool) {
+        guard let index = notifications.firstIndex(where: { $0.id == id }) else { return }
+        var updated = notifications
+        updated[index].isUnread = isUnread
+        notifications = updated
+        if isUnread {
+            seenUnreadIDs.insert(id)
+        } else {
+            seenUnreadIDs.remove(id)
+        }
     }
 
     private func restart() {

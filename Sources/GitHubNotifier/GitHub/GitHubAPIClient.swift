@@ -419,6 +419,16 @@ struct GitHubAPIClient {
         return NotificationsPollResult(notifications: mapped, etag: newETag, pollIntervalSeconds: pollInterval, notModified: false)
     }
 
+    /// Marks one GitHub notification thread as read.
+    func markNotificationRead(id: String) async throws {
+        var request = makeRequest(path: "notifications/threads/\(id)")
+        request.httpMethod = "PATCH"
+        let (_, http) = try await send(request)
+        guard [200, 204, 205].contains(http.statusCode) else {
+            throw GitHubAPIError.http(http.statusCode)
+        }
+    }
+
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601

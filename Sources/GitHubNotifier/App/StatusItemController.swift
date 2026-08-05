@@ -19,7 +19,6 @@ final class StatusItemController {
         configureButton()
         configurePopover()
         observeState()
-        updateIcon()
     }
 
     // MARK: - Setup
@@ -77,26 +76,31 @@ final class StatusItemController {
     }
 
     private func observeState() {
-        // Icon reflects unread count, badge style, and connection status.
-        appState.poller.$notifications
-            .sink { [weak self] _ in self?.updateIcon() }
-            .store(in: &cancellables)
-        appState.poller.$connectionStatus
-            .sink { [weak self] _ in self?.updateIcon() }
-            .store(in: &cancellables)
-        appState.settings.$badgeStyle
-            .sink { [weak self] _ in self?.updateIcon() }
+        // @Published emits in willSet, so render from the values delivered by
+        // the publishers instead of reading properties that are still stale.
+        Publishers.CombineLatest3(
+            appState.poller.$notifications,
+            appState.settings.$badgeStyle,
+            appState.poller.$connectionStatus
+        )
+            .sink { [weak self] notifications, style, status in
+                self?.updateIcon(
+                    unreadCount: notifications.filter(\.isUnread).count,
+                    style: style,
+                    status: status
+                )
+            }
             .store(in: &cancellables)
     }
 
     // MARK: - Icon
 
-    private func updateIcon() {
+    private func updateIcon(unreadCount: Int, style: BadgeStyle, status: ConnectionStatus) {
         guard let button = statusItem.button else { return }
         button.image = BadgeRenderer.image(
-            unreadCount: appState.poller.unreadCount,
-            style: appState.settings.badgeStyle,
-            status: appState.poller.connectionStatus
+            unreadCount: unreadCount,
+            style: style,
+            status: status
         )
     }
 

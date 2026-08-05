@@ -28,6 +28,8 @@ struct SettingsView: View {
                     subscriptionsSection
                     Divider().padding(.vertical, 16)
                     startupSection
+                    Divider().padding(.vertical, 16)
+                    testNotificationSection
                 }
                 .padding(18)
             }
@@ -109,6 +111,21 @@ struct SettingsView: View {
                 get: { app.settings.autoLaunch },
                 set: { app.settings.autoLaunch = $0 }
             ))
+        }
+    }
+
+    private var testNotificationSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            sectionTitle("Test notification")
+            Text("Preview the menu bar badge, list, and macOS notification banner.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Button {
+                app.sendTestNotification()
+            } label: {
+                Label("Send test notification", systemImage: "bell.badge")
+            }
+            .buttonStyle(.bordered)
         }
     }
 

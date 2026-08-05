@@ -2,8 +2,8 @@ import Foundation
 import Combine
 
 /// User preferences and lightweight cache, persisted in UserDefaults.
-/// No database — the app is a read-only viewer, so this is all the local state
-/// we need beyond the Keychain token.
+/// No database — preferences and lightweight cache are all the local state we
+/// need beyond the Keychain token.
 final class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
 
