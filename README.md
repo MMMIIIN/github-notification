@@ -1,8 +1,8 @@
 # GitHub Notifier
 
 GitHub Notifier는 중요한 GitHub 알림을 메뉴 막대에서 바로 확인할 수 있는
-가벼운 macOS 앱입니다. 선택한 저장소의 **리뷰 요청, 리뷰 댓글, 멘션**만
-모아서 보여주며 비공개 저장소도 지원합니다.
+가벼운 macOS 앱입니다. 토큰을 연결하면 GitHub가 내 계정에 생성한
+**리뷰 요청, 리뷰 댓글, 멘션**을 자동으로 모아서 보여주며 비공개 저장소도 지원합니다.
 
 알림은 저장소별로 묶여 표시됩니다. 제목뿐 아니라 댓글·PR 본문 미리보기와
 작성자도 함께 확인할 수 있고, 항목을 누르면 브라우저에서 해당 PR의 리뷰
@@ -11,7 +11,7 @@ GitHub Notifier는 중요한 GitHub 알림을 메뉴 막대에서 바로 확인�
 ## 주요 기능
 
 - 메뉴 막대에서 읽지 않은 알림 개수 또는 점 표시
-- 선택한 저장소의 리뷰 요청, 리뷰 댓글, 멘션만 필터링
+- 계정 전체의 리뷰 요청, 리뷰 댓글, 멘션 자동 수집
 - 저장소별 알림 그룹 및 읽지 않은 알림 수 표시
 - 댓글·PR 내용 미리보기와 작성자 표시
 - 알림 클릭 시 PR의 Files changed 화면 또는 정확한 댓글 위치로 이동
@@ -82,8 +82,7 @@ fine-grained token보다 classic token 사용을 권장합니다.
 ### 처음 시작하기
 
 1. Personal Access Token으로 로그인합니다.
-2. 알림을 확인할 저장소를 하나 이상 선택합니다.
-3. 초기 조회가 끝나면 메뉴 막대 아이콘과 드롭다운에 알림이 표시됩니다.
+2. 초기 조회가 끝나면 메뉴 막대 아이콘과 드롭다운에 알림이 표시됩니다.
 
 앱은 약 60초마다 GitHub Notifications API를 확인합니다. GitHub가 제공하는
 `X-Poll-Interval`과 `ETag`를 사용하므로 변경이 없을 때는 응답 데이터를 다시
@@ -123,9 +122,8 @@ fine-grained token보다 classic token 사용을 권장합니다.
 드롭다운 아래쪽의 **Settings**에서 다음 항목을 변경할 수 있습니다.
 
 - **Menu bar badge**: 읽지 않은 개수 또는 점
-- **Subscribed repositories**: 구독 저장소 추가 및 제거
 - **Launch at login**: macOS 로그인 시 자동 실행
-- **Sign out**: Keychain 토큰, 구독 저장소와 로컬 알림 캐시 초기화
+- **Sign out**: Keychain 토큰과 로컬 알림 캐시 초기화
 
 ## 업데이트
 
@@ -158,13 +156,13 @@ Sources/GitHubNotifier/
 ├── Models/         알림 및 설정 모델
 ├── Notifications/  macOS 시스템 알림
 ├── Support/        Keychain, UserDefaults, 로그인 항목
-└── UI/             로그인, 저장소 선택, 알림 목록, 설정 화면
+└── UI/             로그인, 알림 목록, 설정 화면
 ```
 
 로컬 데이터는 다음과 같이 나뉩니다.
 
 - **Keychain**: GitHub Personal Access Token
-- **UserDefaults**: 구독 저장소, 배지 설정, ETag, 로컬에서 숨긴 알림 ID
+- **UserDefaults**: 배지 설정, ETag, 로컬에서 숨긴 알림 ID
 - **메모리 전용**: 댓글·PR 미리보기, 작성자, 해석된 딥링크
 
 ### Make 명령

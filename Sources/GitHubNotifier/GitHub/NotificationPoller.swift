@@ -1,8 +1,9 @@
 import Foundation
 import Combine
+import Network
 
 /// Drives the ~60s polling loop against the GitHub Notifications API, applies the
-/// user's repo/type filters, and publishes results for the UI and menu bar.
+/// supported notification-type filters, and publishes results for the UI and menu bar.
 ///
 /// Read-only: it never mutates GitHub state. Read/unread comes straight from the
 /// API, so marking something read on github.com is reflected on the next poll.
@@ -22,6 +23,9 @@ final class NotificationPoller: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var seenUnreadIDs: Set<String> = []
     private var consecutiveFailures = 0
+    private let pathMonitor = NWPathMonitor()
+    private let pathMonitorQueue = DispatchQueue(label: "com.ghnotifier.network-monitor")
+    private var networkAvailable = true
 
     private let defaultInterval: TimeInterval = 60
     private let maxBackoff: TimeInterval = 300
@@ -30,6 +34,17 @@ final class NotificationPoller: ObservableObject {
 
     init(settings: SettingsStore = .shared) {
         self.settings = settings
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                self?.handleNetworkPathChange(available: available)
+            }
+        }
+        pathMonitor.start(queue: pathMonitorQueue)
+    }
+
+    deinit {
+        pathMonitor.cancel()
     }
 
     // MARK: - Lifecycle
@@ -49,7 +64,7 @@ final class NotificationPoller: ObservableObject {
         seenUnreadIDs = []
     }
 
-    /// Forces an immediate poll (e.g. after the user changes their subscriptions).
+    /// Forces an immediate poll.
     func refreshNow() {
         restart()
     }
@@ -73,7 +88,7 @@ final class NotificationPoller: ObservableObject {
     /// real poll. This exercises the list, badge, banner, and sound without
     /// changing anything on GitHub.
     func sendTestNotification() {
-        let repository = settings.subscribedRepositories.first ?? "GitHubNotifier/Test"
+        let repository = "GitHubNotifier/Test"
         let item = GitHubNotification(
             id: "test-\(UUID().uuidString)",
             repositoryName: repository,
@@ -110,6 +125,22 @@ final class NotificationPoller: ObservableObject {
         guard token != nil else { return }
         pollTask = Task { [weak self] in
             await self?.loop()
+        }
+    }
+
+    private func handleNetworkPathChange(available: Bool) {
+        let wasAvailable = networkAvailable
+        networkAvailable = available
+
+        if !available {
+            connectionStatus = .networkError
+            pollTask?.cancel()
+            pollTask = nil
+        } else if !wasAvailable {
+            // Do not wait for the old exponential backoff. Verify GitHub
+            // connectivity immediately; pollOnce clears the warning on success.
+            consecutiveFailures = 0
+            restart()
         }
     }
 
@@ -162,11 +193,9 @@ final class NotificationPoller: ObservableObject {
     // MARK: - Filtering & diffing
 
     private func applyFiltered(_ incoming: [GitHubNotification], isFirstPoll: Bool) {
-        let subscribed = Set(settings.subscribedRepositories)
         let allowedTypes: Set<NotificationType> = [.reviewRequest, .reviewComment, .issueMention]
 
         let filtered = incoming
-            .filter { subscribed.isEmpty ? false : subscribed.contains($0.repositoryName) }
             .filter { allowedTypes.contains($0.notificationType) }
             .filter { !settings.dismissedNotificationIDs.contains($0.id) }
             .sorted { $0.updatedAt > $1.updatedAt }

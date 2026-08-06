@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// Top-level popover content. Routes between login, mandatory onboarding, and
-/// the notifications list based on `AppState.screen`.
+/// Top-level popover content. Routes between login and the notifications list.
 struct RootView: View {
     @EnvironmentObject private var app: AppState
     @State private var showingSettings = false
@@ -11,8 +10,6 @@ struct RootView: View {
             switch app.screen {
             case .login:
                 LoginView()
-            case .onboarding:
-                RepoSelectionView(mode: .onboarding)
             case .notifications:
                 if showingSettings {
                     SettingsView(isPresented: $showingSettings)

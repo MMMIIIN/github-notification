@@ -1,20 +1,11 @@
 import SwiftUI
 
-/// Settings: badge style, subscription editing, launch-at-login, and logout.
+/// Settings: badge style, launch-at-login, testing, and logout.
 struct SettingsView: View {
     @EnvironmentObject private var app: AppState
     @Binding var isPresented: Bool
-    @State private var editingRepos = false
 
     var body: some View {
-        if editingRepos {
-            RepoSelectionView(mode: .settings, onDone: { editingRepos = false })
-        } else {
-            settingsBody
-        }
-    }
-
-    private var settingsBody: some View {
         VStack(spacing: 0) {
             header
             Divider()
@@ -24,8 +15,6 @@ struct SettingsView: View {
                     accountSection
                     Divider().padding(.vertical, 16)
                     badgeSection
-                    Divider().padding(.vertical, 16)
-                    subscriptionsSection
                     Divider().padding(.vertical, 16)
                     startupSection
                     Divider().padding(.vertical, 16)
@@ -89,18 +78,6 @@ struct SettingsView: View {
             Text("Show the unread count, or a simple dot.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    private var subscriptionsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionTitle("Subscribed repositories")
-            Text("\(app.settings.subscribedRepositories.count) repositories")
-                .font(.callout)
-            Button("Edit subscriptions…") {
-                editingRepos = true
-            }
-            .buttonStyle(.bordered)
         }
     }
 

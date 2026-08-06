@@ -10,18 +10,13 @@ final class SettingsStore: ObservableObject {
     private let defaults = UserDefaults.standard
 
     private enum Keys {
-        static let subscribedRepos = "subscribedRepositories"
+        static let legacySubscribedRepos = "subscribedRepositories"
+        static let legacyOnboarded = "hasCompletedOnboarding"
         static let badgeStyle = "badgeStyle"
         static let autoLaunch = "autoLaunch"
         static let authMethod = "authMethod"
         static let etag = "notificationsETag"
-        static let onboarded = "hasCompletedOnboarding"
         static let dismissedNotificationIDs = "dismissedNotificationIDs"
-    }
-
-    /// Full names ("org/repo") the user chose to watch.
-    @Published var subscribedRepositories: [String] {
-        didSet { defaults.set(subscribedRepositories, forKey: Keys.subscribedRepos) }
     }
 
     @Published var badgeStyle: BadgeStyle {
@@ -30,11 +25,6 @@ final class SettingsStore: ObservableObject {
 
     @Published var autoLaunch: Bool {
         didSet { defaults.set(autoLaunch, forKey: Keys.autoLaunch) }
-    }
-
-    /// True once the user has passed the mandatory repo-subscription onboarding.
-    @Published var hasCompletedOnboarding: Bool {
-        didSet { defaults.set(hasCompletedOnboarding, forKey: Keys.onboarded) }
     }
 
     /// Read notifications the user explicitly removed from the local list.
@@ -57,17 +47,21 @@ final class SettingsStore: ObservableObject {
     }
 
     private init() {
-        self.subscribedRepositories = defaults.stringArray(forKey: Keys.subscribedRepos) ?? []
+        // Repository filtering was removed. If this is an upgraded install,
+        // discard the old filter and ETag so the first poll fetches the full list.
+        if defaults.object(forKey: Keys.legacySubscribedRepos) != nil ||
+            defaults.object(forKey: Keys.legacyOnboarded) != nil {
+            defaults.removeObject(forKey: Keys.legacySubscribedRepos)
+            defaults.removeObject(forKey: Keys.legacyOnboarded)
+            defaults.removeObject(forKey: Keys.etag)
+        }
         self.badgeStyle = BadgeStyle(rawValue: defaults.string(forKey: Keys.badgeStyle) ?? "") ?? .number
         self.autoLaunch = defaults.bool(forKey: Keys.autoLaunch)
-        self.hasCompletedOnboarding = defaults.bool(forKey: Keys.onboarded)
         self.dismissedNotificationIDs = Set(defaults.stringArray(forKey: Keys.dismissedNotificationIDs) ?? [])
     }
 
     /// Clears preferences on logout (token is cleared separately via KeychainStore).
     func resetForLogout() {
-        subscribedRepositories = []
-        hasCompletedOnboarding = false
         authMethod = nil
         notificationsETag = nil
         dismissedNotificationIDs = []

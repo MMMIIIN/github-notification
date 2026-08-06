@@ -25,14 +25,6 @@ struct NotificationTarget {
     let author: String?
 }
 
-/// A repository the user can subscribe to during onboarding.
-struct RepositorySummary: Identifiable, Hashable {
-    var id: String { fullName }
-    let fullName: String       // "org/repo"
-    let isPrivate: Bool
-    let ownerLogin: String
-}
-
 /// Thin async GitHub REST client. Read-only (GET only) per the app's design.
 struct GitHubAPIClient {
     let token: String
@@ -92,42 +84,6 @@ struct GitHubAPIClient {
         } catch {
             throw GitHubAPIError.decoding(error.localizedDescription)
         }
-    }
-
-    // MARK: - Repositories (onboarding subscription list)
-
-    /// Fetches repositories the user can access (includes private with `repo` scope).
-    /// Paginates up to `maxPages` of 100.
-    func fetchRepositories(maxPages: Int = 4) async throws -> [RepositorySummary] {
-        var results: [RepositorySummary] = []
-        for page in 1...maxPages {
-            let query = [
-                URLQueryItem(name: "per_page", value: "100"),
-                URLQueryItem(name: "page", value: String(page)),
-                URLQueryItem(name: "sort", value: "updated"),
-                URLQueryItem(name: "affiliation", value: "owner,collaborator,organization_member")
-            ]
-            let (data, http) = try await send(makeRequest(path: "user/repos", query: query))
-            guard http.statusCode == 200 else { throw GitHubAPIError.http(http.statusCode) }
-
-            struct Repo: Decodable {
-                let full_name: String
-                let `private`: Bool
-                struct Owner: Decodable { let login: String }
-                let owner: Owner
-            }
-            let repos: [Repo]
-            do {
-                repos = try JSONDecoder().decode([Repo].self, from: data)
-            } catch {
-                throw GitHubAPIError.decoding(error.localizedDescription)
-            }
-            results.append(contentsOf: repos.map {
-                RepositorySummary(fullName: $0.full_name, isPrivate: $0.private, ownerLogin: $0.owner.login)
-            })
-            if repos.count < 100 { break }   // last page
-        }
-        return results
     }
 
     // MARK: - Comment deep-link resolution

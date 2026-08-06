@@ -25,7 +25,7 @@ final class StatusItemController {
 
     private func configureButton() {
         guard let button = statusItem.button else { return }
-        button.imagePosition = .imageOnly
+        button.imagePosition = .imageLeft
         button.target = self
         button.action = #selector(handleClick)
         // Receive both left- and right-clicks so we can show a context menu.
@@ -97,11 +97,33 @@ final class StatusItemController {
 
     private func updateIcon(unreadCount: Int, style: BadgeStyle, status: ConnectionStatus) {
         guard let button = statusItem.button else { return }
+        // Keep the bell as a standard template image and render unread state as
+        // native status-item text. Composite bitmap badges were intermittently
+        // clipped or ignored by the menu bar.
         button.image = BadgeRenderer.image(
-            unreadCount: unreadCount,
+            unreadCount: 0,
             style: style,
             status: status
         )
+        let badgeText: String
+        if status != .connected || unreadCount == 0 {
+            badgeText = ""
+        } else {
+            switch style {
+            case .number: badgeText = unreadCount > 99 ? "99+" : String(unreadCount)
+            case .dot: badgeText = "●"
+            }
+        }
+        button.attributedTitle = NSAttributedString(
+            string: badgeText,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: style == .dot ? 8 : 11, weight: .semibold),
+                .foregroundColor: NSColor.systemRed
+            ]
+        )
+        button.toolTip = unreadCount > 0
+            ? "GitHub Notifier — \(unreadCount) unread"
+            : "GitHub Notifier"
     }
 
     // MARK: - Popover toggle
