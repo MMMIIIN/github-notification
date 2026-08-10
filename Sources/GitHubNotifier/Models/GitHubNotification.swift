@@ -5,7 +5,15 @@ import Foundation
 enum NotificationType: String, Codable, CaseIterable {
     case reviewRequest
     case reviewComment
+    case issueComment
     case issueMention
+    case assigned
+    case authored
+    case subscribed
+    case ciActivity
+    case securityAlert
+    case stateChange
+    case approvalRequest
     case other
 
     /// SF Symbol name used in the dropdown row.
@@ -13,7 +21,15 @@ enum NotificationType: String, Codable, CaseIterable {
         switch self {
         case .reviewRequest: return "checklist"
         case .reviewComment: return "text.bubble"
+        case .issueComment: return "bubble.left"
         case .issueMention: return "at"
+        case .assigned: return "person.crop.circle.badge.checkmark"
+        case .authored: return "person.crop.circle"
+        case .subscribed: return "eye"
+        case .ciActivity: return "checkmark.circle"
+        case .securityAlert: return "exclamationmark.shield"
+        case .stateChange: return "arrow.triangle.2.circlepath"
+        case .approvalRequest: return "checkmark.seal"
         case .other: return "bell"
         }
     }
@@ -22,7 +38,15 @@ enum NotificationType: String, Codable, CaseIterable {
         switch self {
         case .reviewRequest: return "Review requested"
         case .reviewComment: return "Review comment"
+        case .issueComment: return "Issue comment"
         case .issueMention: return "Mention"
+        case .assigned: return "Assigned"
+        case .authored: return "Your thread"
+        case .subscribed: return "Subscribed thread"
+        case .ciActivity: return "Workflow activity"
+        case .securityAlert: return "Security alert"
+        case .stateChange: return "State changed"
+        case .approvalRequest: return "Approval requested"
         case .other: return "Notification"
         }
     }
@@ -35,9 +59,23 @@ enum NotificationType: String, Codable, CaseIterable {
             return .reviewRequest
         case "mention", "team_mention":
             return .issueMention
+        case "assign":
+            return .assigned
+        case "author":
+            return .authored
+        case "subscribed":
+            return .subscribed
+        case "ci_activity":
+            return .ciActivity
+        case "security_alert":
+            return .securityAlert
+        case "state_change":
+            return .stateChange
+        case "approval_requested":
+            return .approvalRequest
         case "comment":
             // A comment on a PR review thread vs. an issue thread.
-            return subjectType == "PullRequest" ? .reviewComment : .issueMention
+            return subjectType == "PullRequest" ? .reviewComment : .issueComment
         default:
             return .other
         }

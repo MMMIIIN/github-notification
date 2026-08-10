@@ -36,7 +36,10 @@ final class SystemNotificationManager: NSObject {
             ]
 
             let request = UNNotificationRequest(
-                identifier: item.id,
+                // GitHub reuses a thread ID when another comment arrives. A
+                // revision-specific identifier prevents Notification Center
+                // from replacing/suppressing that later banner.
+                identifier: "\(item.id)-\(Int(item.updatedAt.timeIntervalSince1970))",
                 content: content,
                 trigger: nil   // deliver immediately
             )

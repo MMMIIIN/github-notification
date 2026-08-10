@@ -33,8 +33,15 @@ struct DropdownView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("Notifications")
-                .font(.headline)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Notifications")
+                    .font(.headline)
+                if let lastUpdated = app.poller.lastUpdated {
+                    (Text("Last checked ") + Text(lastUpdated, style: .relative))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
             if app.poller.unreadCount > 0 {
                 Text("\(app.poller.unreadCount) unread")
                     .font(.caption)
@@ -48,8 +55,15 @@ struct DropdownView: View {
             ) {
                 showingClearConfirmation = true
             }
-            IconButton(system: "arrow.clockwise", help: "Refresh now") {
-                app.poller.refreshNow()
+            if app.poller.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 30, height: 30)
+                    .help("Refreshing…")
+            } else {
+                IconButton(system: "arrow.clockwise", help: "Refresh now") {
+                    app.poller.refreshNow()
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -182,7 +196,7 @@ struct DropdownView: View {
             Text("You're all caught up")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text("New review requests, comments, and mentions\nwill show up here.")
+            Text("New GitHub notifications\nwill show up here.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

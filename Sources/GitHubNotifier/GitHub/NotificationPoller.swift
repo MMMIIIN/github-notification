@@ -3,7 +3,7 @@ import Combine
 import Network
 
 /// Drives the ~60s polling loop against the GitHub Notifications API, applies the
-/// supported notification-type filters, and publishes results for the UI and menu bar.
+/// GitHub's notification threads, and publishes results for the UI and menu bar.
 ///
 /// Read-only: it never mutates GitHub state. Read/unread comes straight from the
 /// API, so marking something read on github.com is reflected on the next poll.
@@ -13,6 +13,7 @@ final class NotificationPoller: ObservableObject {
     @Published private(set) var notifications: [GitHubNotification] = []
     @Published private(set) var connectionStatus: ConnectionStatus = .connected
     @Published private(set) var lastUpdated: Date?
+    @Published private(set) var isRefreshing = false
 
     /// Emits the set of newly-arrived unread notifications each poll, so the
     /// AppDelegate can raise system notification banners for them.
@@ -21,7 +22,9 @@ final class NotificationPoller: ObservableObject {
     private let settings: SettingsStore
     private var token: String?
     private var pollTask: Task<Void, Never>?
-    private var seenUnreadIDs: Set<String> = []
+    private var seenUnreadVersions: [String: Date] = [:]
+    private var hasEstablishedBaseline = false
+    private var activeRefreshID: UUID?
     private var consecutiveFailures = 0
     private let pathMonitor = NWPathMonitor()
     private let pathMonitorQueue = DispatchQueue(label: "com.ghnotifier.network-monitor")
@@ -51,9 +54,10 @@ final class NotificationPoller: ObservableObject {
 
     func start(token: String) {
         self.token = token
-        seenUnreadIDs = []          // first poll seeds the baseline, no banner spam
+        seenUnreadVersions = [:]    // first poll seeds the baseline, no banner spam
+        hasEstablishedBaseline = false
         consecutiveFailures = 0
-        restart()
+        restart(bypassETagOnFirstPoll: true)
     }
 
     func stop() {
@@ -61,26 +65,28 @@ final class NotificationPoller: ObservableObject {
         pollTask = nil
         token = nil
         notifications = []
-        seenUnreadIDs = []
+        seenUnreadVersions = [:]
+        hasEstablishedBaseline = false
+        isRefreshing = false
     }
 
     /// Forces an immediate poll.
     func refreshNow() {
-        restart()
+        restart(bypassETagOnFirstPoll: true)
     }
 
     /// Hides a read item locally; the persisted id prevents it returning on the
     /// next poll. This does not delete the GitHub notification.
     func dismissReadNotification(id: String) {
         guard let item = notifications.first(where: { $0.id == id }), !item.isUnread else { return }
-        settings.dismissedNotificationIDs.insert(id)
+        settings.dismiss(item)
         notifications.removeAll { $0.id == id }
     }
 
     /// Hides every currently visible item locally, including unread items.
     /// Nothing is changed on GitHub.
     func dismissAllNotifications() {
-        settings.dismissedNotificationIDs.formUnion(notifications.map(\.id))
+        notifications.forEach(settings.dismiss)
         notifications = []
     }
 
@@ -104,7 +110,7 @@ final class NotificationPoller: ObservableObject {
             updatedAt: Date()
         )
         notifications.insert(item, at: 0)
-        seenUnreadIDs.insert(item.id)
+        seenUnreadVersions[item.id] = item.updatedAt
         newNotifications.send([item])
     }
 
@@ -114,17 +120,17 @@ final class NotificationPoller: ObservableObject {
         updated[index].isUnread = isUnread
         notifications = updated
         if isUnread {
-            seenUnreadIDs.insert(id)
+            seenUnreadVersions[id] = notifications[index].updatedAt
         } else {
-            seenUnreadIDs.remove(id)
+            seenUnreadVersions[id] = nil
         }
     }
 
-    private func restart() {
+    private func restart(bypassETagOnFirstPoll: Bool = false) {
         pollTask?.cancel()
         guard token != nil else { return }
         pollTask = Task { [weak self] in
-            await self?.loop()
+            await self?.loop(bypassETagOnFirstPoll: bypassETagOnFirstPoll)
         }
     }
 
@@ -140,17 +146,17 @@ final class NotificationPoller: ObservableObject {
             // Do not wait for the old exponential backoff. Verify GitHub
             // connectivity immediately; pollOnce clears the warning on success.
             consecutiveFailures = 0
-            restart()
+            restart(bypassETagOnFirstPoll: true)
         }
     }
 
     // MARK: - Loop
 
-    private func loop() async {
-        var firstPoll = true
+    private func loop(bypassETagOnFirstPoll: Bool) async {
+        var bypassETag = bypassETagOnFirstPoll
         while !Task.isCancelled {
-            let interval = await pollOnce(isFirstPoll: firstPoll)
-            firstPoll = false
+            let interval = await pollOnce(bypassETag: bypassETag)
+            bypassETag = false
             do {
                 try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             } catch {
@@ -160,19 +166,34 @@ final class NotificationPoller: ObservableObject {
     }
 
     /// Performs one poll; returns the number of seconds to wait before the next.
-    private func pollOnce(isFirstPoll: Bool) async -> TimeInterval {
+    private func pollOnce(bypassETag: Bool) async -> TimeInterval {
         guard let token else { return defaultInterval }
         let client = GitHubAPIClient(token: token)
+        let refreshID = UUID()
+        activeRefreshID = refreshID
+        isRefreshing = true
+        defer {
+            if activeRefreshID == refreshID {
+                activeRefreshID = nil
+                isRefreshing = false
+            }
+        }
         do {
-            let result = try await client.pollNotifications(etag: settings.notificationsETag)
+            let result = try await client.pollNotifications(
+                etag: bypassETag ? nil : settings.notificationsETag
+            )
             consecutiveFailures = 0
             connectionStatus = .connected
             lastUpdated = Date()
 
             if !result.notModified {
                 settings.notificationsETag = result.etag
-                applyFiltered(result.notifications, isFirstPoll: isFirstPoll)
+                applyFiltered(
+                    result.notifications,
+                    suppressNewNotifications: !hasEstablishedBaseline
+                )
             }
+            hasEstablishedBaseline = true
 
             let advised = result.pollIntervalSeconds.map(TimeInterval.init) ?? defaultInterval
             return max(advised, defaultInterval)
@@ -180,11 +201,12 @@ final class NotificationPoller: ObservableObject {
             connectionStatus = .authError
             return defaultInterval
         } catch {
+            // A manual refresh or network transition deliberately cancels the
+            // previous request. Do not surface that as a connection failure.
+            if Task.isCancelled { return defaultInterval }
             // Network or transient error: keep the last data, back off, retry silently.
             consecutiveFailures += 1
-            if consecutiveFailures >= 2 {
-                connectionStatus = .networkError
-            }
+            connectionStatus = .networkError
             let backoff = min(defaultInterval * Double(consecutiveFailures), maxBackoff)
             return backoff
         }
@@ -192,29 +214,43 @@ final class NotificationPoller: ObservableObject {
 
     // MARK: - Filtering & diffing
 
-    private func applyFiltered(_ incoming: [GitHubNotification], isFirstPoll: Bool) {
-        let allowedTypes: Set<NotificationType> = [.reviewRequest, .reviewComment, .issueMention]
-
+    private func applyFiltered(_ incoming: [GitHubNotification], suppressNewNotifications: Bool) {
         let filtered = incoming
-            .filter { allowedTypes.contains($0.notificationType) }
-            .filter { !settings.dismissedNotificationIDs.contains($0.id) }
+            .filter { !settings.isDismissed($0) }
             .sorted { $0.updatedAt > $1.updatedAt }
 
         let trimmed = Array(filtered.prefix(recentLimit))
 
         // Detect newly-arrived unread items for banners.
         let currentUnread = trimmed.filter(\.isUnread)
-        let fresh = currentUnread.filter { !seenUnreadIDs.contains($0.id) }
-        seenUnreadIDs.formUnion(currentUnread.map(\.id))
+        let fresh = Self.newUnreadNotifications(
+            in: currentUnread,
+            seenVersions: seenUnreadVersions
+        )
+        seenUnreadVersions = Dictionary(
+            uniqueKeysWithValues: currentUnread.map { ($0.id, $0.updatedAt) }
+        )
 
         notifications = trimmed
 
-        if !isFirstPoll, !fresh.isEmpty {
+        if !suppressNewNotifications, !fresh.isEmpty {
             newNotifications.send(fresh)
         }
     }
 
     var unreadCount: Int {
         notifications.filter(\.isUnread).count
+    }
+
+    /// A GitHub notification is a thread, so new activity commonly keeps the
+    /// same ID and advances `updated_at`. Compare both fields.
+    static func newUnreadNotifications(
+        in current: [GitHubNotification],
+        seenVersions: [String: Date]
+    ) -> [GitHubNotification] {
+        current.filter { item in
+            guard let seenDate = seenVersions[item.id] else { return true }
+            return item.updatedAt > seenDate
+        }
     }
 }

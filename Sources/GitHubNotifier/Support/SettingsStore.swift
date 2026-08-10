@@ -16,7 +16,8 @@ final class SettingsStore: ObservableObject {
         static let autoLaunch = "autoLaunch"
         static let authMethod = "authMethod"
         static let etag = "notificationsETag"
-        static let dismissedNotificationIDs = "dismissedNotificationIDs"
+        static let legacyDismissedNotificationIDs = "dismissedNotificationIDs"
+        static let dismissedNotificationVersions = "dismissedNotificationVersions"
     }
 
     @Published var badgeStyle: BadgeStyle {
@@ -27,9 +28,10 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(autoLaunch, forKey: Keys.autoLaunch) }
     }
 
-    /// Read notifications the user explicitly removed from the local list.
-    @Published var dismissedNotificationIDs: Set<String> {
-        didSet { defaults.set(Array(dismissedNotificationIDs), forKey: Keys.dismissedNotificationIDs) }
+    /// Exact notification revisions hidden locally. GitHub reuses a thread ID
+    /// when new activity arrives, so the update timestamp must be part of the key.
+    @Published private(set) var dismissedNotificationVersions: [String: TimeInterval] {
+        didSet { defaults.set(dismissedNotificationVersions, forKey: Keys.dismissedNotificationVersions) }
     }
 
     var authMethod: AuthMethod? {
@@ -55,15 +57,25 @@ final class SettingsStore: ObservableObject {
             defaults.removeObject(forKey: Keys.legacyOnboarded)
             defaults.removeObject(forKey: Keys.etag)
         }
+        // Old dismissed IDs hid a thread forever, including future comments.
+        defaults.removeObject(forKey: Keys.legacyDismissedNotificationIDs)
         self.badgeStyle = BadgeStyle(rawValue: defaults.string(forKey: Keys.badgeStyle) ?? "") ?? .number
         self.autoLaunch = defaults.bool(forKey: Keys.autoLaunch)
-        self.dismissedNotificationIDs = Set(defaults.stringArray(forKey: Keys.dismissedNotificationIDs) ?? [])
+        self.dismissedNotificationVersions = defaults.dictionary(forKey: Keys.dismissedNotificationVersions) as? [String: TimeInterval] ?? [:]
+    }
+
+    func dismiss(_ notification: GitHubNotification) {
+        dismissedNotificationVersions[notification.id] = notification.updatedAt.timeIntervalSince1970
+    }
+
+    func isDismissed(_ notification: GitHubNotification) -> Bool {
+        dismissedNotificationVersions[notification.id] == notification.updatedAt.timeIntervalSince1970
     }
 
     /// Clears preferences on logout (token is cleared separately via KeychainStore).
     func resetForLogout() {
         authMethod = nil
         notificationsETag = nil
-        dismissedNotificationIDs = []
+        dismissedNotificationVersions = [:]
     }
 }
