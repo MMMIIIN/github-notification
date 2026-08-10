@@ -114,7 +114,12 @@ struct NotificationRowView: View {
                     Text("·"); Text("@\(author)").lineLimit(1)
                 }
                 if showsRepository || resolvedAuthor != nil || notification.author != nil { Text("·") }
-                Text(RelativeTime.string(for: notification.updatedAt))
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(RelativeTime.string(
+                        for: notification.updatedAt,
+                        relativeTo: context.date
+                    ))
+                }
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -152,7 +157,7 @@ enum RelativeTime {
         return f
     }()
 
-    static func string(for date: Date) -> String {
-        formatter.localizedString(for: date, relativeTo: Date())
+    static func string(for date: Date, relativeTo referenceDate: Date = Date()) -> String {
+        formatter.localizedString(for: date, relativeTo: referenceDate)
     }
 }

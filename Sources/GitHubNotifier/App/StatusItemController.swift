@@ -53,6 +53,10 @@ final class StatusItemController {
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
+        let refresh = NSMenuItem(title: "Refresh Now", action: #selector(refreshNow), keyEquivalent: "r")
+        refresh.target = self
+        menu.addItem(refresh)
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit GitHub Notifier", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -65,6 +69,10 @@ final class StatusItemController {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func refreshNow() {
+        appState.poller.refreshNow()
     }
 
     private func configurePopover() {

@@ -39,6 +39,17 @@ final class AppState: ObservableObject {
     private var prefetchTask: Task<Void, Never>?
 
     init() {
+        // Views observe AppState as their environment object, while polling
+        // state lives in a nested ObservableObject. Forward every poller change
+        // so refresh progress, timestamps, connection state, and rows redraw
+        // even when GitHub returns 304 with the same notification array.
+        poller.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
         // React to auth changes: drive the screen and the poller.
         auth.$token
             .receive(on: RunLoop.main)
@@ -204,6 +215,14 @@ final class AppState: ObservableObject {
         resolutionTasks[notification.id] = task
         let target = await task.value
         resolutionTasks[notification.id] = nil
+
+        // The row may have been removed while its request was in flight. Do
+        // not republish preview state for a notification that no longer exists.
+        guard poller.notifications.contains(where: {
+            $0.id == notification.id && $0.updatedAt == notification.updatedAt
+        }) else {
+            return target
+        }
         deepLinkCache[notification.id] = CachedDeepLink(
             notificationDate: notification.updatedAt,
             url: target.url,
@@ -225,10 +244,17 @@ final class AppState: ObservableObject {
 
     private func prefetchDeepLinks(for notifications: [GitHubNotification]) {
         guard let token = auth.token else { return }
-        prefetchTask?.cancel()
+        // Removing a row also publishes the shortened notification array. Do
+        // not cancel and rebuild the whole preview queue for every deletion.
+        guard prefetchTask == nil else { return }
+        let pending = notifications.filter {
+            cachedDeepLink(for: $0) == nil && resolutionTasks[$0.id] == nil
+        }
+        guard !pending.isEmpty else { return }
         prefetchTask = Task { [weak self] in
             guard let self else { return }
-            for notification in notifications where !Task.isCancelled {
+            defer { prefetchTask = nil }
+            for notification in pending where !Task.isCancelled {
                 guard cachedDeepLink(for: notification) == nil else { continue }
                 _ = await resolveDeepLink(for: notification, token: token)
             }
@@ -256,6 +282,8 @@ final class AppState: ObservableObject {
         notificationAuthors[notification.id] = nil
         resolutionTasks[notification.id]?.cancel()
         resolutionTasks[notification.id] = nil
+        markingReadNotificationIDs.remove(notification.id)
+        recentlyMarkedReadNotificationIDs.remove(notification.id)
         resolvingNotificationIDs.remove(notification.id)
         poller.dismissReadNotification(id: notification.id)
     }

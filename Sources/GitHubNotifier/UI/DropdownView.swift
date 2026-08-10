@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The main dropdown: recent notifications with unread emphasis, a connection
 /// banner on errors, and a footer with settings + "open on GitHub".
@@ -217,6 +218,15 @@ struct DropdownView: View {
             .buttonStyle(.plain)
             .font(.caption)
             .foregroundStyle(.secondary)
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                Label("Quit", systemImage: "power")
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .keyboardShortcut("q", modifiers: .command)
             Spacer()
             Button {
                 app.openInBrowser("https://github.com/notifications")
