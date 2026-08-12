@@ -8,6 +8,9 @@ struct NotificationRowView: View {
     var isResolving = false
     var isMarkingRead = false
     var didMarkRead = false
+    /// Arrived since the user last looked. Shown independently of `isUnread`,
+    /// which another GitHub client may already have cleared.
+    var isNew = false
     var showsRepository = true
     let onTap: () -> Void
     var onDelete: (() -> Void)? = nil
@@ -43,15 +46,20 @@ struct NotificationRowView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 30, height: 30)
                     .help("Marked as read")
-            } else if notification.isUnread {
+            } else {
+                // One branch for every combination: a row can be new without
+                // being unread, so the dismiss action can't hang off `isUnread`
+                // alone or it vanishes exactly when the user needs it.
                 HStack(spacing: 5) {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 7, height: 7)
+                    if notification.isUnread {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 7, height: 7)
+                    }
 
                     if let onMarkRead {
                         Button(action: onMarkRead) {
-                            Image(systemName: "envelope.open")
+                            Image(systemName: notification.isUnread ? "envelope.open" : "checkmark.circle")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 30, height: 30)
@@ -62,26 +70,37 @@ struct NotificationRowView: View {
                         }
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
-                        .help("Mark as read")
+                        .help(notification.isUnread ? "Mark as read" : "Mark as seen")
+                    }
+
+                    if let onDelete, hovering {
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                        .help("Remove this read notification")
                     }
                 }
-            } else if let onDelete, hovering {
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                .help("Remove this read notification")
             }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 14)
         .background(
-            Rectangle()
-                .fill(hovering ? Color.primary.opacity(0.035) : Color.clear)
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(isNew ? Color.accentColor.opacity(0.09) : Color.clear)
+                Rectangle()
+                    .fill(hovering ? Color.primary.opacity(0.035) : Color.clear)
+                if isNew {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 3)
+                }
+            }
         )
         .onHover { hovering = $0 }
     }
@@ -90,7 +109,7 @@ struct NotificationRowView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(headline)
                 .font(.callout)
-                .fontWeight(notification.isUnread ? .semibold : .regular)
+                .fontWeight(notification.isUnread || isNew ? .semibold : .regular)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -104,6 +123,15 @@ struct NotificationRowView: View {
             }
 
             HStack(spacing: 5) {
+                if isNew {
+                    Text("NEW")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor))
+                        .help("Arrived since you last opened this list")
+                }
                 typeLabel
                 if showsRepository {
                     Text(notification.repositoryName)

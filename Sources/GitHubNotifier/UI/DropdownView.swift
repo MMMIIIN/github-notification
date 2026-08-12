@@ -43,12 +43,22 @@ struct DropdownView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            if app.poller.newArrivalCount > 0 {
+                Text("\(app.poller.newArrivalCount) new")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
             if app.poller.unreadCount > 0 {
                 Text("\(app.poller.unreadCount) unread")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if app.poller.newArrivalCount > 0 {
+                IconButton(system: "checkmark.circle", help: "Mark all as seen") {
+                    app.poller.acknowledgeAllArrivals()
+                }
+            }
             IconButton(
                 system: "trash",
                 help: "Remove all notifications",
@@ -119,6 +129,7 @@ struct DropdownView: View {
                                     isResolving: app.resolvingNotificationIDs.contains(item.id),
                                     isMarkingRead: app.markingReadNotificationIDs.contains(item.id),
                                     didMarkRead: app.recentlyMarkedReadNotificationIDs.contains(item.id),
+                                    isNew: app.poller.newArrivalIDs.contains(item.id),
                                     showsRepository: false,
                                     onTap: {
                                         app.openNotification(item)
@@ -126,9 +137,12 @@ struct DropdownView: View {
                                     onDelete: item.isUnread ? nil : {
                                         app.dismissReadNotification(item)
                                     },
-                                    onMarkRead: item.isUnread ? {
-                                        app.markNotificationAsRead(item)
-                                    } : nil
+                                    // Offered for anything still marked NEW, not
+                                    // just GitHub-unread items.
+                                    onMarkRead: item.isUnread
+                                        || app.poller.newArrivalIDs.contains(item.id)
+                                        ? { app.markNotificationAsSeen(item) }
+                                        : nil
                                 )
                             }
                         } header: {
