@@ -22,7 +22,7 @@ final class NotificationPollerTests: XCTestCase {
         let newDate = Date(timeIntervalSince1970: 2_000)
         let updated = notification(id: "thread-1", updatedAt: newDate)
 
-        let fresh = NotificationPoller.newUnreadNotifications(
+        let fresh = NotificationPoller.newArrivals(
             in: [updated],
             seenVersions: ["thread-1": oldDate]
         )
@@ -34,7 +34,7 @@ final class NotificationPollerTests: XCTestCase {
         let date = Date(timeIntervalSince1970: 1_000)
         let unchanged = notification(id: "thread-1", updatedAt: date)
 
-        let fresh = NotificationPoller.newUnreadNotifications(
+        let fresh = NotificationPoller.newArrivals(
             in: [unchanged],
             seenVersions: ["thread-1": date]
         )

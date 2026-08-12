@@ -86,14 +86,17 @@ final class StatusItemController {
     private func observeState() {
         // @Published emits in willSet, so render from the values delivered by
         // the publishers instead of reading properties that are still stale.
+        // The badge counts arrivals the user hasn't looked at, not GitHub's
+        // unread flag — that flag is shared with every other GitHub client and
+        // is routinely cleared before this app's poll ever sees the thread.
         Publishers.CombineLatest3(
-            appState.poller.$notifications,
+            appState.poller.$newArrivalIDs,
             appState.settings.$badgeStyle,
             appState.poller.$connectionStatus
         )
-            .sink { [weak self] notifications, style, status in
+            .sink { [weak self] newArrivalIDs, style, status in
                 self?.updateIcon(
-                    unreadCount: notifications.filter(\.isUnread).count,
+                    newCount: newArrivalIDs.count,
                     style: style,
                     status: status
                 )
@@ -103,7 +106,7 @@ final class StatusItemController {
 
     // MARK: - Icon
 
-    private func updateIcon(unreadCount: Int, style: BadgeStyle, status: ConnectionStatus) {
+    private func updateIcon(newCount: Int, style: BadgeStyle, status: ConnectionStatus) {
         guard let button = statusItem.button else { return }
         // Keep the bell as a standard template image and render unread state as
         // native status-item text. Composite bitmap badges were intermittently
@@ -114,11 +117,11 @@ final class StatusItemController {
             status: status
         )
         let badgeText: String
-        if status != .connected || unreadCount == 0 {
+        if status != .connected || newCount == 0 {
             badgeText = ""
         } else {
             switch style {
-            case .number: badgeText = unreadCount > 99 ? "99+" : String(unreadCount)
+            case .number: badgeText = newCount > 99 ? "99+" : String(newCount)
             case .dot: badgeText = "●"
             }
         }
@@ -129,9 +132,12 @@ final class StatusItemController {
                 .foregroundColor: NSColor.systemRed
             ]
         )
-        button.toolTip = unreadCount > 0
-            ? "GitHub Notifier — \(unreadCount) unread"
+        button.toolTip = newCount > 0
+            ? "GitHub Notifier — \(newCount) new"
             : "GitHub Notifier"
+
+        DebugLog.log("badge", "newCount=\(newCount) status=\(status) "
+            + "badgeText=\"\(badgeText)\"")
     }
 
     // MARK: - Popover toggle

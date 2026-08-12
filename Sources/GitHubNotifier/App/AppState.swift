@@ -123,6 +123,11 @@ final class AppState: ObservableObject {
             return
         }
 
+        // Opening it is the user dealing with this one notification — and only
+        // this one. Done for read notifications too, since GitHub's unread flag
+        // may already have been cleared by another client.
+        poller.acknowledgeArrival(id: notification.id)
+
         if notification.isUnread {
             markNotificationAsRead(notification)
         }
@@ -304,6 +309,21 @@ final class AppState: ObservableObject {
         poller.sendTestNotification()
     }
 
+    /// "I've dealt with this one" from the row button.
+    ///
+    /// Clears it from the badge and, when GitHub still considers it unread,
+    /// marks it read there too. The two are separate because another GitHub
+    /// client may already have cleared the unread flag while the notification
+    /// is still new to this user.
+    func markNotificationAsSeen(_ notification: GitHubNotification) {
+        if notification.isUnread {
+            markNotificationAsRead(notification)
+        } else {
+            poller.acknowledgeArrival(id: notification.id)
+            showReadConfirmation(for: notification.id)
+        }
+    }
+
     func markNotificationAsRead(_ notification: GitHubNotification) {
         guard notification.isUnread,
               !markingReadNotificationIDs.contains(notification.id) else { return }
@@ -315,6 +335,7 @@ final class AppState: ObservableObject {
         }
         guard let token = auth.token else { return }
 
+        DebugLog.log("markread", "app is marking id=\(notification.id) read (user action)")
         markingReadNotificationIDs.insert(notification.id)
         // Optimistic update: make the interaction immediate. Roll back if the
         // GitHub request fails.

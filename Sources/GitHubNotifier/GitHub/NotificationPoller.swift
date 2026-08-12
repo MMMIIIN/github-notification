@@ -15,14 +15,24 @@ final class NotificationPoller: ObservableObject {
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var isRefreshing = false
 
-    /// Emits the set of newly-arrived unread notifications each poll, so the
+    /// Notifications that have arrived since the user last opened the dropdown.
+    /// This — not GitHub's `unread` flag — drives the menu bar badge: another
+    /// GitHub client (mobile app, browser, a script sharing the token) can mark
+    /// a thread read within seconds of it arriving, long before this app's 60s
+    /// poll runs, which would otherwise hide the notification completely.
+    @Published private(set) var newArrivalIDs: Set<String> = []
+
+    /// Emits notifications that arrived since the previous poll, so the
     /// AppDelegate can raise system notification banners for them.
     let newNotifications = PassthroughSubject<[GitHubNotification], Never>()
 
     private let settings: SettingsStore
     private var token: String?
     private var pollTask: Task<Void, Never>?
-    private var seenUnreadVersions: [String: Date] = [:]
+    /// Every revision already shown to the user, as `id -> updated_at`.
+    private var seenVersions: [String: Date] = [:]
+    /// False only until the very first poll for this account completes.
+    private var hasSeededBaseline = false
     private var hasEstablishedBaseline = false
     private var activeRefreshID: UUID?
     private var consecutiveFailures = 0
@@ -37,6 +47,12 @@ final class NotificationPoller: ObservableObject {
 
     init(settings: SettingsStore = .shared) {
         self.settings = settings
+        // Restore what the user has already seen so a relaunch neither forgets
+        // pending arrivals nor re-announces the whole backlog.
+        self.seenVersions = settings.seenNotificationVersions
+            .mapValues(Date.init(timeIntervalSince1970:))
+        self.newArrivalIDs = settings.newArrivalIDs
+        self.hasSeededBaseline = settings.hasSeededNotificationBaseline
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let available = path.status == .satisfied
             Task { @MainActor [weak self] in
@@ -54,7 +70,8 @@ final class NotificationPoller: ObservableObject {
 
     func start(token: String) {
         self.token = token
-        seenUnreadVersions = [:]    // first poll seeds the baseline, no banner spam
+        // Keep the persisted baseline: the first poll should announce what
+        // arrived while the app was closed, but never raise a burst of banners.
         hasEstablishedBaseline = false
         consecutiveFailures = 0
         restart(bypassETagOnFirstPoll: true)
@@ -65,9 +82,40 @@ final class NotificationPoller: ObservableObject {
         pollTask = nil
         token = nil
         notifications = []
-        seenUnreadVersions = [:]
+        seenVersions = [:]
+        newArrivalIDs = []
+        // The next account starts fresh and must seed its own baseline.
+        hasSeededBaseline = false
+        persistSeenState()
         hasEstablishedBaseline = false
         isRefreshing = false
+    }
+
+    /// Drops one notification from the badge, because the user acted on it.
+    ///
+    /// Per-item rather than wholesale: opening a notification launches the
+    /// browser, which deactivates this app and closes the popover on its own.
+    /// Treating that close as "the whole list has been seen" would silently
+    /// clear every other new arrival.
+    func acknowledgeArrival(id: String) {
+        guard newArrivalIDs.contains(id) else { return }
+        DebugLog.log("ack", "acted on id=\(id); \(newArrivalIDs.count - 1) new arrival(s) left")
+        newArrivalIDs.remove(id)
+        persistSeenState()
+    }
+
+    /// Clears the badge outright — only ever from an explicit "mark all as seen".
+    func acknowledgeAllArrivals() {
+        guard !newArrivalIDs.isEmpty else { return }
+        DebugLog.log("ack", "marked all \(newArrivalIDs.count) new arrival(s) as seen")
+        newArrivalIDs = []
+        persistSeenState()
+    }
+
+    private func persistSeenState() {
+        settings.seenNotificationVersions = seenVersions.mapValues(\.timeIntervalSince1970)
+        settings.newArrivalIDs = newArrivalIDs
+        settings.hasSeededNotificationBaseline = hasSeededBaseline
     }
 
     /// Forces an immediate poll.
@@ -81,6 +129,8 @@ final class NotificationPoller: ObservableObject {
         guard let item = notifications.first(where: { $0.id == id }), !item.isUnread else { return }
         settings.dismiss(item)
         notifications.removeAll { $0.id == id }
+        newArrivalIDs.remove(id)
+        persistSeenState()
     }
 
     /// Hides every currently visible item locally, including unread items.
@@ -88,6 +138,8 @@ final class NotificationPoller: ObservableObject {
     func dismissAllNotifications() {
         notifications.forEach(settings.dismiss)
         notifications = []
+        newArrivalIDs = []
+        persistSeenState()
     }
 
     /// Injects one in-memory notification through the same publisher used by a
@@ -110,7 +162,9 @@ final class NotificationPoller: ObservableObject {
             updatedAt: Date()
         )
         notifications.insert(item, at: 0)
-        seenUnreadVersions[item.id] = item.updatedAt
+        seenVersions[item.id] = item.updatedAt
+        newArrivalIDs.insert(item.id)
+        persistSeenState()
         newNotifications.send([item])
     }
 
@@ -119,11 +173,12 @@ final class NotificationPoller: ObservableObject {
         var updated = notifications
         updated[index].isUnread = isUnread
         notifications = updated
-        if isUnread {
-            seenUnreadVersions[id] = notifications[index].updatedAt
-        } else {
-            seenUnreadVersions[id] = nil
+        seenVersions[id] = notifications[index].updatedAt
+        if !isUnread {
+            // Acting on a notification in this app means the user has seen it.
+            newArrivalIDs.remove(id)
         }
+        persistSeenState()
     }
 
     private func restart(bypassETagOnFirstPoll: Bool = false) {
@@ -186,6 +241,10 @@ final class NotificationPoller: ObservableObject {
             connectionStatus = .connected
             lastUpdated = Date()
 
+            DebugLog.log("poll", result.notModified
+                ? "304 not modified (etag unchanged)"
+                : "200 received=\(result.notifications.count) unread=\(result.notifications.filter(\.isUnread).count)")
+
             if !result.notModified {
                 settings.notificationsETag = result.etag
                 applyFiltered(
@@ -214,27 +273,82 @@ final class NotificationPoller: ObservableObject {
 
     // MARK: - Filtering & diffing
 
-    private func applyFiltered(_ incoming: [GitHubNotification], suppressNewNotifications: Bool) {
+    /// Applies a poll result: hides locally dismissed revisions, publishes the
+    /// list, and works out what is new to the user.
+    ///
+    /// Internal rather than private so the delivery signal can be tested without
+    /// a network round-trip.
+    func applyFiltered(_ incoming: [GitHubNotification], suppressNewNotifications: Bool) {
         let filtered = incoming
             .filter { !settings.isDismissed($0) }
             .sorted { $0.updatedAt > $1.updatedAt }
 
         let trimmed = Array(filtered.prefix(recentLimit))
 
-        // Detect newly-arrived unread items for banners.
-        let currentUnread = trimmed.filter(\.isUnread)
-        let fresh = Self.newUnreadNotifications(
-            in: currentUnread,
-            seenVersions: seenUnreadVersions
-        )
-        seenUnreadVersions = Dictionary(
-            uniqueKeysWithValues: currentUnread.map { ($0.id, $0.updatedAt) }
+        logDelivery(incoming: incoming, filtered: filtered, trimmed: trimmed)
+
+        // Newness is judged against every revision already shown, read or not.
+        // A thread marked read elsewhere seconds after it arrived is still the
+        // first time *this user* has been told about it.
+        let isSeedingBaseline = !hasSeededBaseline
+        hasSeededBaseline = true
+        let fresh = Self.newArrivals(in: trimmed, seenVersions: seenVersions)
+        seenVersions = Dictionary(
+            uniqueKeysWithValues: trimmed.map { ($0.id, $0.updatedAt) }
         )
 
         notifications = trimmed
 
-        if !suppressNewNotifications, !fresh.isEmpty {
+        if isSeedingBaseline {
+            // A fresh install (or a first run after sign-out) should not light
+            // up the badge with a backlog the user never asked about.
+            newArrivalIDs = []
+        } else {
+            newArrivalIDs.formUnion(fresh.map(\.id))
+            // Drop anything no longer listed, so the badge can never outlive
+            // the notifications it is counting.
+            let visible = Set(trimmed.map(\.id))
+            newArrivalIDs.formIntersection(visible)
+        }
+        persistSeenState()
+
+        DebugLog.log("apply", "unreadInList=\(trimmed.filter(\.isUnread).count) "
+            + "fresh=\(fresh.count) badge=\(newArrivalIDs.count) "
+            + "banners=\(suppressNewNotifications || isSeedingBaseline ? "suppressed(baseline)" : "\(fresh.count)")")
+
+        if !suppressNewNotifications, !isSeedingBaseline, !fresh.isEmpty {
             newNotifications.send(fresh)
+        }
+    }
+
+    /// Records what each poll did to every notification, so an item that arrives
+    /// already-read — or gets dropped by the dismissed-versions filter — is
+    /// visible in the log instead of silently vanishing before the badge.
+    private func logDelivery(
+        incoming: [GitHubNotification],
+        filtered: [GitHubNotification],
+        trimmed: [GitHubNotification]
+    ) {
+        let dropped = incoming.count - filtered.count
+        DebugLog.log("filter", "incoming=\(incoming.count) hiddenByDismiss=\(dropped) "
+            + "kept=\(trimmed.count) unreadIncoming=\(incoming.filter(\.isUnread).count)")
+
+        let previous = Dictionary(uniqueKeysWithValues: notifications.map { ($0.id, $0) })
+        for item in trimmed {
+            guard let old = previous[item.id] else {
+                DebugLog.log("arrival", "NEW id=\(item.id) unread=\(item.isUnread) "
+                    + "updated=\(item.updatedAt) type=\(item.notificationType) "
+                    + "title=\(item.title.prefix(48))")
+                continue
+            }
+            if old.updatedAt != item.updatedAt {
+                DebugLog.log("arrival", "UPDATED id=\(item.id) unread=\(item.isUnread) "
+                    + "\(old.updatedAt) -> \(item.updatedAt) title=\(item.title.prefix(48))")
+            }
+            if old.isUnread != item.isUnread {
+                DebugLog.log("readstate", "id=\(item.id) unread \(old.isUnread) -> \(item.isUnread) "
+                    + "(changed outside a tap in this app unless a 'markread' line precedes it)")
+            }
         }
     }
 
@@ -242,9 +356,19 @@ final class NotificationPoller: ObservableObject {
         notifications.filter(\.isUnread).count
     }
 
+    /// How many notifications the user has not looked at yet — what the menu
+    /// bar badge shows.
+    var newArrivalCount: Int {
+        newArrivalIDs.count
+    }
+
     /// A GitHub notification is a thread, so new activity commonly keeps the
     /// same ID and advances `updated_at`. Compare both fields.
-    static func newUnreadNotifications(
+    ///
+    /// Deliberately independent of `isUnread`: the read flag is shared across
+    /// every GitHub client, so relying on it makes delivery depend on whether
+    /// something else got there first.
+    static func newArrivals(
         in current: [GitHubNotification],
         seenVersions: [String: Date]
     ) -> [GitHubNotification] {
